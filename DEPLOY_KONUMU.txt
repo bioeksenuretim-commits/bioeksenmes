@@ -1,0 +1,6 @@
+﻿Netlify deploy klasoru:
+C:\Users\kalim\OneDrive\Masaüstü\projelerim\gpt reak talep\release-netlify-final-2026-04-10
+
+PowerShell:
+cd "C:\Users\kalim\OneDrive\Masaüstü\projelerim\gpt reak talep\release-netlify-final-2026-04-10"
+netlify deploy --prod --dir="."

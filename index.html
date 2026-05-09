@@ -1,0 +1,1153 @@
+<!DOCTYPE html>
+<html lang="tr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Üretim ve Sipariş Takip Sistemi</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" crossorigin>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/css/modules.css">
+    <link rel="stylesheet" href="/css/app-main.css?v=20260506-hover-performance">
+
+    <script defer src="/js/excel-loader.js?v=20260505-performance"></script>
+
+    <!-- Firebase SDK -->
+    <script defer src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script defer src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+    <script defer src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+
+    <!-- Yeni Modüller -->
+    <script defer src="/js/storage.js?v=20260508-tab-session"></script>
+    <script defer src="/js/firebase-config.js?v=2"></script>
+    <script defer src="/js/firebase-auth.js?v=20260508-tab-session"></script>
+    <script defer src="/js/firebase-sync-v4.js?v=20260510-realtime-fallback"></script>
+    <script defer src="/js/pagination.js?v=2"></script>
+    <script defer src="/js/backup.js?v=20260505-performance"></script>
+    <script defer src="/js/advanced-filters.js?v=2"></script>
+    <script defer src="/js/product-tree-excel-v4.js?v=20260505-performance"></script>
+    <script defer src="/js/product-tree-ui.js?v=20260505-performance"></script>
+    <script defer src="/js/init-v4.js?v=20260510-realtime-fallback"></script>
+</head>
+
+<body>
+    <!-- ===== LOGIN SCREEN ===== -->
+    <div id="loginScreen">
+        <div class="login-card">
+            <div class="login-logo">RS</div>
+            <h2 id="loginTitle">Giriş Yap</h2>
+            <p class="login-subtitle">Reaksiyon Strip taleplerini, üretim akışını ve ekip güncellemelerini tek yerden yönetin.</p>
+
+            <!-- Login Form -->
+            <div id="loginForm">
+                <div class="login-field">
+                    <label>Paraf</label>
+                    <input type="text" id="loginParaf" placeholder="Örn: SKY" autocomplete="off">
+                </div>
+                <div class="login-field">
+                    <label>Şifre</label>
+                    <input type="password" id="loginPassword" placeholder="Şifrenizi yazın">
+                </div>
+                <button class="login-btn" onclick="doLogin()">Giriş Yap</button>
+                <div class="login-error" id="loginError"></div>
+                <div class="login-toggle">
+                    Sifrenizi mi degistirmek istiyorsunuz? <a onclick="showLoginView('change-password')">Sifremi degistir</a>
+                </div>
+                <div class="login-toggle">
+                    Hesabınız yok mu? <a onclick="toggleLoginMode()">Hesap Oluştur</a>
+                </div>
+            </div>
+
+            <!-- Register Form -->
+            <div id="registerForm" style="display:none;">
+                <div class="login-field">
+                    <label>İsim Soyisim</label>
+                    <input type="text" id="regFullName" placeholder="Örn: Seda Yılmaz">
+                </div>
+                <div class="login-field">
+                    <label>Paraf</label>
+                    <input type="text" id="regParaf" placeholder="Örn: SKY">
+                </div>
+                <div class="login-field">
+                    <label>Şifre</label>
+                    <input type="password" id="regPassword" placeholder="En az 6 karakter">
+                </div>
+                <div class="login-field">
+                    <label>Departman</label>
+                    <select id="regDepartment">
+                        <option value="">Departman seçin</option>
+                        <option value="lojistik">Lojistik</option>
+                        <option value="satis">Satış</option>
+                        <option value="uretim">Üretim</option>
+                    </select>
+                </div>
+                <button class="login-btn" onclick="doRegister()">Hesap oluştur</button>
+                <div class="login-error" id="registerError"></div>
+                <div class="login-toggle">
+                    Zaten hesabınız var mı? <a onclick="toggleLoginMode()">Giriş Yap</a>
+                </div>
+            </div>
+            <div id="changePasswordForm" style="display:none;">
+                <div class="login-field">
+                    <label>Paraf</label>
+                    <input type="text" id="changeParaf" placeholder="Orn: SKY" autocomplete="off">
+                </div>
+                <div class="login-field">
+                    <label>Mevcut Sifre</label>
+                    <input type="password" id="changeOldPassword" placeholder="Mevcut sifrenizi yazin">
+                </div>
+                <div class="login-field">
+                    <label>Yeni Sifre</label>
+                    <input type="password" id="changeNewPassword" placeholder="En az 6 karakter">
+                </div>
+                <div class="login-field">
+                    <label>Yeni Sifre Tekrar</label>
+                    <input type="password" id="changeNewPasswordConfirm" placeholder="Yeni sifrenizi tekrar yazin">
+                </div>
+                <button class="login-btn" onclick="doChangePassword()">Sifreyi Degistir</button>
+                <div class="login-error" id="changePasswordError"></div>
+                <div class="login-toggle">
+                    Giris ekranina donmek ister misiniz? <a onclick="showLoginView('login')">Giris Yap</a>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="modal-overlay" id="changeParafModal" onclick="if(event.target===this)closeChangeParafModal()">
+        <div class="modal" style="max-width: 420px;">
+            <div class="modal-header">
+                <h3 class="modal-title">Paraf Değiştir</h3>
+                <button class="modal-close" onclick="closeChangeParafModal()">&times;</button>
+            </div>
+            <div style="padding: 1.5rem;">
+                <div class="login-field">
+                    <label>Mevcut Paraf</label>
+                    <input type="text" id="profileCurrentParaf" disabled>
+                </div>
+                <div class="login-field">
+                    <label>Yeni Paraf</label>
+                    <input type="text" id="profileNewParaf" placeholder="Örn: SKY" autocomplete="off">
+                </div>
+                <div class="login-field">
+                    <label>Mevcut Şifre</label>
+                    <input type="password" id="profileParafPassword" placeholder="Şifrenizi yazın">
+                </div>
+                <button class="login-btn" id="changeParafBtn" type="button" onclick="doChangeParaf()">Parafı Değiştir</button>
+                <div class="login-error" id="changeParafError"></div>
+            </div>
+        </div>
+    </div>
+    <div class="bg-animation"></div>
+    <div id="loadingOverlay" class="loading-overlay" style="display: none;">
+        <div class="spinner"></div>
+        <div id="loadingText">İşleniyor...</div>
+    </div>
+
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <div class="logo">
+                <div class="logo-icon">gysa</div>
+                <div class="logo-text">
+                    <h1>Üretim ve Sipariş Takip Sistemi</h1>
+                    <span>Üretim ve Sipariş Takip Sistemi</span>
+                </div>
+            </div>
+
+            <!-- Hidden File Input for Excel Import (Product Tree) -->
+            <input type="file" id="excelImportInput" accept=".xlsx,.xls" style="display: none;"
+                onchange="importFromExcel(event)">
+
+            <div id="tabRegistry" style="display: none;">
+                <button class="nav-tab active" data-tab="dashboard">Dashboard</button>
+                <button class="nav-tab" data-tab="orders">Talepler</button>
+                <button class="nav-tab" data-tab="vcap">vCAP</button>
+                <button class="nav-tab" data-tab="liyofilize">Liyofilize</button>
+                <button class="nav-tab" data-tab="tube">Tüp Format</button>
+                <button class="nav-tab" data-tab="unmatched">Karşılığı Olmayan</button>
+                <button class="nav-tab" data-tab="new-order">Yeni Talep</button>
+                <button class="nav-tab" data-tab="backup-tools">Veri Yedekleme</button>
+                <button class="nav-tab" data-tab="admin-tools">Admin Paneli</button>
+                <button class="nav-tab" data-tab="product-tree-tools">Ürün Ağacı</button>
+                <button class="nav-tab" data-tab="sales-lines">Satış satırları</button>
+                <button class="nav-tab" data-tab="qc-view">QC Bekleyen</button>
+                <button class="nav-tab" data-tab="islemde-view">İşlemde</button>
+                <button class="nav-tab" data-tab="teslim-view">Teslim Edilen</button>
+                <button class="nav-tab" data-tab="dagitilan-view">Dağıtılan</button>
+                <button class="nav-tab" data-tab="qcrepeat-view">QC Tekrar</button>
+                <button class="nav-tab" data-tab="etiketlendi-view">Etiketlenen</button>
+                <button class="nav-tab" data-tab="destroyed-view">İmha Edilen</button>
+            </div>
+
+            <div class="header-tools">
+                <div class="header-primary-nav">
+                    <button type="button" class="header-primary-btn active" id="headerPrimaryDashboardBtn" data-primary-tab="dashboard" onclick="switchTab('dashboard')">Dashboard</button>
+                    <button type="button" class="header-primary-btn" id="headerPrimaryOrdersBtn" data-primary-tab="orders" onclick="switchTab('orders')">Talepler</button>
+                    <button type="button" class="header-primary-btn" id="headerPrimarySalesLinesBtn" data-primary-tab="sales-lines" onclick="switchTab('sales-lines')">Satış satırları</button>
+                </div>
+                <div class="user-header-info" id="userHeaderInfo"></div>
+                <div class="menu-wrapper" id="menuWrapper">
+                    <button type="button" class="menu-toggle" id="menuToggleBtn" aria-label="Menüyü aç">
+                        <span></span>
+                    </button>
+                    <div class="menu-dropdown" id="menuDropdown">
+                        <div class="menu-group" id="quickAccessMenuGroup">
+                            <div class="menu-heading">Hızlı Erişim</div>
+                            <button type="button" class="menu-action" id="quickBackupBtn" onclick="goToUtilitySection('backup-tools')">Veri Yedekleme & Dışa Aktarma</button>
+                            <button type="button" class="menu-action" id="quickAdminBtn" onclick="goToUtilitySection('admin-tools')">Admin Paneli - Kullanıcı Yönetimi</button>
+                            <button type="button" class="menu-action" id="quickProductTreeBtn" onclick="goToUtilitySection('product-tree-tools')">Ürün Ağacı Yönetimi</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Dashboard Section -->
+        <section id="dashboard" class="section active">
+            <div class="dashboard-grid">
+                <div class="stat-card">
+                    <div class="stat-icon">📦</div>
+                    <div class="stat-value" id="totalOrders">0</div>
+                    <div class="stat-label">Toplam Talep</div>
+                </div>
+                <div class="stat-card warning" onclick="switchTab('qc-view')" style="cursor: pointer;">
+                    <div class="stat-icon">⏳</div>
+                    <div class="stat-value" id="pendingQC">0</div>
+                    <div class="stat-label">QC Bekliyor (Detaylar)</div>
+                </div>
+                <div class="stat-card success" onclick="switchTab('teslim-view')" style="cursor: pointer;">
+                    <div class="stat-icon">✅</div>
+                    <div class="stat-value" id="delivered">0</div>
+                    <div class="stat-label">Teslim Edildi (Detaylar)</div>
+                </div>
+                <div class="stat-card info" onclick="switchTab('islemde-view')" style="cursor: pointer;">
+                    <div class="stat-icon">⚙️</div>
+                    <div class="stat-value" id="inProduction">0</div>
+                    <div class="stat-label">İşlemde (Detaylar)</div>
+                </div>
+                <div class="stat-card" onclick="switchTab('dagitilan-view')" style="cursor: pointer;">
+                    <div class="stat-icon" style="background: rgba(99, 102, 241, 0.1); color: #6366f1;">
+                        🚚
+                    </div>
+                    <div class="stat-value" id="distributed">0</div>
+                    <div class="stat-label">Dağıtılanlar (Detaylar)</div>
+                </div>
+
+                <div class="stat-card" onclick="openFilteredView('QC tekrarlanacak')" style="cursor: pointer;">
+                    <div class="stat-icon" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b;">
+                        🔁
+                    </div>
+                    <div class="stat-value" id="qcRepeat">0</div>
+                    <div class="stat-label">QC Tekrar (Detaylar)</div>
+                </div>
+
+                <div class="stat-card" onclick="openFilteredView('Etiketlendi')" style="cursor: pointer;">
+                    <div class="stat-icon" style="background: rgba(236, 72, 153, 0.1); color: #ec4899;">
+                        Etiket
+                    </div>
+                    <div class="stat-value" id="labeled">0</div>
+                    <div class="stat-label">Etiketlendi (Detaylar)</div>
+                </div>
+
+                <div class="stat-card danger" onclick="switchTab('destroyed-view')" style="cursor: pointer;">
+                    <div class="stat-icon">İmha</div>
+                    <div class="stat-value" id="destroyed">0</div>
+                    <div class="stat-label">İmha Edilenler (Detaylar)</div>
+                </div>
+            </div>
+
+            <div class="dashboard-support-grid">
+                <div class="stack-gap">
+            <!-- Backup & Export Section (Dashboard'da) -->
+            <div id="backup-panel">
+                <div class="glass-card">
+                    <div id="backupContainer">
+                        <div
+                            style="padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; align-items: flex-start;">
+                            <h3 style="color: var(--text-primary); margin: 0;">Veri Yönetimi</h3>
+                            <p style="color: var(--text-secondary); margin: 0;">Verilerinizi Excel olarak dışa
+                                aktarabilir
+                                veya tüm veritabanını temizleyebilirsiniz.</p>
+                            <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                                <button class="btn btn-primary" onclick="downloadFullBackupExcel()"
+                                    style="background: #10b981; border-color: #10b981;">
+                                    Tam Excel Yedeği
+                                </button>
+                                <input type="file" id="dashboardExcelOrderImportInput" accept=".xlsx, .xls"
+                                    style="display: none;" onchange="handleExcelOrderImport(this)">
+                                <button class="btn btn-primary" onclick="document.getElementById('dashboardExcelOrderImportInput').click()"
+                                    style="background: #2563eb; border-color: #2563eb;">
+                                    Excel'den Yükle
+                                </button>
+                                <button class="btn btn-primary btn-sm" id="deleteAllDataBtn" onclick="deleteAllOrders()"
+                                    style="background: #ef4444; border-color: #ef4444; display: none;">
+                                    Tüm Veriyi Sil
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Admin Panel Section (Dashboard'da - sadece admin görür) -->
+                </div>
+
+                <div class="info-panel sales-sync-panel" id="salesSyncPanel">
+                    <h3>Satış satırları</h3>
+                    <p id="salesSyncSummary">Henüz satış satırları verisi yüklenmedi. Yükleme yapıldığında bu özet ana uygulamada da görünür.</p>
+                    <div class="sales-sync-metrics">
+                        <div class="sales-sync-metric">
+                            <strong id="salesSyncTotal">0</strong>
+                            <span>Toplam satış satırı</span>
+                        </div>
+                        <div class="sales-sync-metric">
+                            <strong id="salesSyncOverdue">0</strong>
+                            <span>Yaklaşan / geciken teslim</span>
+                        </div>
+                    </div>
+                    <div class="dense-actions" style="margin-top: 16px;">
+                        <button type="button" class="btn btn-secondary" onclick="switchTab('sales-lines')">Satış satırlarını aç</button>
+                    </div>
+                </div>
+
+            </div>
+
+            <div id="adminPanelSection" class="admin-panel" style="display: none;">
+                <div class="glass-card">
+                    <div class="card-header">
+                        <h2 class="card-title">gY'' Admin Paneli - Kullanıcı Yönetimi</h2>
+                    </div>
+                    <div style="padding: 1.5rem;">
+                        <div style="margin-bottom: 1rem; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; color: #475569; font-size: 0.86rem;">
+                            Sifreler guvenlik nedeniyle goruntulenemez. Kullanici kendi mevcut sifresini dogrulayarak giris ekranindan sifresini degistirebilir.
+                        </div>
+                        <table class="admin-user-table">
+                            <thead>
+                                <tr>
+                                    <th>İsim Soyisim</th>
+                                    <th>Paraf</th>
+                                    <th>Rol</th>
+                                    <th>Departman</th>
+                                    <th>Durum</th>
+                                    <th>Kayıt Tarihi</th>
+                                    <th>İşlem</th>
+                                </tr>
+                            </thead>
+                            <tbody id="adminUserTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Product Tree Manager Section (Dashboard'da) -->
+            <div id="product-tree-manager" style="margin-top: 2rem;">
+                <div class="glass-card">
+                    <div class="card-header">
+                        <h2 class="card-title">Ürün Ağacı Yönetimi</h2>
+                    </div>
+
+                    <!-- Stats -->
+                    <div id="productTreeStats"
+                        style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
+                        <div class="stat-card">
+                            <div class="stat-icon">#</div>
+                            <div class="stat-value" id="ptTotalComponents">0</div>
+                            <div class="stat-label">Toplam Bileşen</div>
+                        </div>
+                        <div class="stat-card info">
+                            <div class="stat-icon">+</div>
+                            <div class="stat-value" id="ptTotalTrees">0</div>
+                            <div class="stat-label">Ürün Ağacı</div>
+                        </div>
+                        <div class="stat-card success">
+                            <div class="stat-icon">*</div>
+                            <div class="stat-value" id="ptUniqueComponents">0</div>
+                            <div class="stat-label">Benzersiz Bileşen</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-icon">i</div>
+                            <div class="stat-value" id="ptManualProductCount">0</div>
+                            <div class="stat-label">Manuel Ürün</div>
+                        </div>
+                    </div>
+
+                    <!-- Upload Section -->
+                    <div
+                        style="background: var(--bg-tertiary); border-radius: 12px; padding: 2rem; margin-bottom: 2rem;">
+                        <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: 1rem;">Excel Dosyası Yükle
+                        </h3>
+                        <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+                            "Ürün Ağaçları Revize" Excel dosyasını yükleyin. Dosya yüklendikten sonra sistem
+                            ürün ağaçlarını otomatik olarak indeksleyecek.
+                        </p>
+
+                        <input type="file" id="productTreeExcelInput" accept=".xlsx,.xls" style="display: none;"
+                            onchange="handleProductTreeExcelUpload(this)">
+
+                        <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                            <button class="btn btn-secondary" onclick="downloadProductTreesExcel()">
+                                Excel Olarak İndir
+                            </button>
+                            <button class="btn btn-primary"
+                                onclick="document.getElementById('productTreeExcelInput').click()">
+                                Excel Dosyası Seç
+                            </button>
+                            <button class="btn btn-secondary" onclick="clearProductTree()" id="clearPTBtn" disabled>
+                                Verileri Temizle
+                            </button>
+                            <button class="btn btn-info" onclick="showProductTreeInfo()">
+                                Nasıl Kullanılır?
+                            </button>
+                        </div>
+
+                        <div id="ptUploadStatus" style="margin-top: 1rem; display: none;">
+                            <p style="color: var(--success); font-weight: 600;">Tamam <span id="ptStatusText"></span></p>
+                        </div>
+                    </div>
+
+                    <!-- Search & Test Section -->
+                    <div
+                        style="background: var(--bg-card); border: 1px solid var(--border-glass); border-radius: 12px; padding: 2rem;">
+                        <h3 style="font-size: 1.1rem; font-weight: 600; margin-bottom: 1rem;">Arama ve Test</h3>
+
+                        <div style="display: grid; grid-template-columns: 1fr auto; gap: 1rem; margin-bottom: 1.5rem;">
+                            <input type="text" id="ptSearchInput" class="form-input"
+                                placeholder="Ürün Ağacı No veya Bileşen No girin (örn: AAV01100 veya YM-P-02378)"
+                                onkeyup="if(event.key==='Enter') searchProductTree()">
+                            <button class="btn btn-primary" onclick="searchProductTree()">
+                                Ara
+                            </button>
+                        </div>
+
+                        <div id="ptSearchResults"></div>
+                    </div>
+
+                    <div id="manual-product-section" class="manual-product-panel">
+                        <div class="card-header" style="margin-bottom: 0; padding-bottom: 14px;">
+                            <div>
+                                <h3 style="font-size: 1.05rem; font-weight: 700; margin-bottom: 0.35rem;">Ürün ağacı kayıtları</h3>
+                                <p class="section-subtle">Excel'de olmayan ürünleri burada yönetin. Yeni kayıt ekleyebilir, mevcut kayıtları düzenleyebilir veya kaldırabilirsiniz.</p>
+                            </div>
+                            <button type="button" class="btn btn-primary" onclick="toggleManualProductForm()">Yeni kayıt ekle</button>
+                        </div>
+
+                        <div id="manualProductPanel" style="display: none; margin-top: 18px;">
+                            <div class="form-grid-wide">
+                                <div class="form-group">
+                                    <label class="form-label">Ürün Katalog Numarası</label>
+                                    <input type="text" id="manualCatalogNo" class="form-input" placeholder="Örn: AAV99999">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Ürün HM Numarası</label>
+                                    <input type="text" id="manualHmNo" class="form-input" placeholder="Örn: HM-001245">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Ürün Açıklaması</label>
+                                    <input type="text" id="manualProductDescription" class="form-input" placeholder="Örn: Avian Adenovirus RT-qPCR-100 Rxn">
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Format Türü</label>
+                                    <select id="manualProductFormat" class="form-select">
+                                        <option value="">Seçiniz...</option>
+                                        <option value="vCAP">vCAP</option>
+                                        <option value="Liyofilize">Liyofilize</option>
+                                        <option value="Tup">Tup</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div style="margin-top: 16px;">
+                                <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+                                    <div>
+                                        <label class="form-label" style="margin-bottom: 0;">Ürün Bileşenleri</label>
+                                        <div class="section-subtle">Her satırda madde no, rxn adı ve o madde için miktar girilir.</div>
+                                    </div>
+                                    <button type="button" class="btn btn-secondary btn-sm" onclick="addManualComponentRow()">Bileşen satırı ekle</button>
+                                </div>
+                                <div id="manualProductComponents" class="manual-component-list"></div>
+                            </div>
+
+                            <div class="dense-actions" style="margin-top: 16px;">
+                                <button type="button" class="btn btn-primary" onclick="saveManualProduct()">Ürünü kaydet</button>
+                                <button type="button" class="btn btn-secondary" onclick="resetManualProductForm()">Formu temizle</button>
+                            </div>
+                        </div>
+
+                        <div style="margin-top: 18px;">
+                            <h4 style="font-size: 0.95rem; margin-bottom: 8px;">Yüklü ürün ağaçları</h4>
+                            <input type="text" id="managedProductSearch" class="form-input" placeholder="Katalog no, HM no, format veya bileşen ara" style="margin-bottom: 12px;" oninput="renderManagedProductsList()">
+                            <div id="manualProductList" class="manual-product-list"></div>
+                        </div>
+                    </div>
+
+                    <!-- Usage Guide -->
+                    <div id="ptGuide"
+                        style="margin-top: 2rem; background: var(--bg-tertiary); border-radius: 12px; padding: 1.5rem; display: none;">
+                        <h3 style="font-size: 1rem; font-weight: 600; margin-bottom: 1rem;">Kullanım Kılavuzu</h3>
+                        <ul style="list-style: none; padding: 0; color: var(--text-secondary);">
+                            <li style="margin-bottom: 0.75rem;">Tamam <strong>Ürün Ağacı No ile Arama:</strong> AAV01100
+                                gibi
+                                bir kod girdiğinizde, o ürün ağacındaki TÜM bileşenler listelenir.</li>
+                            <li style="margin-bottom: 0.75rem;">Tamam <strong>Bileşen No ile Arama:</strong> YM-P-02378 gibi
+                                bir
+                                kod girdiğinizde, o bileşenin detayları gösterilir.</li>
+                            <li style="margin-bottom: 0.75rem;">Tamam <strong>Miktar Hesaplama:</strong> Talep ettiğiniz
+                                miktar
+                                × Excel'deki "Miktar esası" = Toplam miktar</li>
+                            <li style="margin-bottom: 0.75rem;">Tamam <strong>Yeni Talep Formunda:</strong> Katalog No
+                                alanına
+                                ürün ağacı veya bileşen no'sunu girebilirsiniz.</li>
+                            <li>Tamam <strong>Otomatik Kayıt:</strong> Yüklediğiniz veriler tarayıcınızda saklanır, tekrar
+                                yüklemeniz gerekmez.</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+        </section>
+
+        <section id="backup-tools" class="section utility-section">
+            <div class="glass-card utility-shell">
+                <div class="card-header">
+                    <h2 class="card-title">Veri Yedekleme & Dışa Aktarma</h2>
+                </div>
+                <div id="backupToolsMount"></div>
+            </div>
+        </section>
+
+        <section id="admin-tools" class="section utility-section">
+            <div class="glass-card utility-shell">
+                <div class="card-header">
+                    <h2 class="card-title">Admin Paneli - Kullanıcı Yönetimi</h2>
+                </div>
+                <div id="adminToolsMount"></div>
+            </div>
+        </section>
+
+        <section id="product-tree-tools" class="section utility-section">
+            <div class="glass-card utility-shell">
+                <div class="card-header">
+                    <h2 class="card-title">Ürün Ağacı Yönetimi</h2>
+                </div>
+                <div id="productTreeToolsMount"></div>
+            </div>
+        </section>
+
+        <section id="sales-lines" class="section utility-section workspace-section">
+            <div class="glass-card utility-shell">
+                <div class="embedded-page-shell">
+                    <iframe
+                        id="salesLinesFrame"
+                        class="embedded-page-frame"
+                        title="Satış satırları"
+                        loading="lazy"></iframe>
+                </div>
+            </div>
+        </section>
+
+        <!-- Orders Section -->
+        <section id="orders" class="section workspace-section">
+            <!-- Hidden sidebar elements for JS compatibility -->
+            <div id="ordersLayout" style="display:none;">
+                <div class="sidebar-slot">
+                    <button id="showSidebarBtn" class="sidebar-toggle-btn" style="display:none;"></button>
+                    <div id="weekSidebar" class="glass-card sidebar" style="display:none;">
+                        <div id="weekSidebarList"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- View Tabs -->
+            <div class="orders-view-switcher" id="ordersViewSwitcher">
+                <button type="button" class="orders-view-btn active" data-orders-view="orders" onclick="switchTab('orders')">Tümü</button>
+                <button type="button" class="orders-view-btn" data-orders-view="urgent" onclick="switchTab('urgent')">Acil beklenen</button>
+                <button type="button" class="orders-view-btn" data-orders-view="vcap" onclick="switchTab('vcap')">vCAP</button>
+                <button type="button" class="orders-view-btn" data-orders-view="liyofilize" onclick="switchTab('liyofilize')">Liyofilize</button>
+                <button type="button" class="orders-view-btn" data-orders-view="tube" onclick="switchTab('tube')">Tüp format</button>
+                <button type="button" class="orders-view-btn" data-orders-view="unmatched" onclick="switchTab('unmatched')">Karşılığı olmayan</button>
+            </div>
+
+            <!-- Toolbar -->
+            <div class="orders-toolbar">
+                <div class="orders-toolbar-left">
+                    <input type="text" id="globalSearch" class="orders-toolbar-search" placeholder="Ara..." oninput="applyRequestFilters()">
+                    <select class="orders-toolbar-select" id="ordersWeekDropdown" onchange="filterByWeek(this.value ? parseInt(this.value) : null)">
+                        <option value="">Tüm Haftalar</option>
+                    </select>
+                    <button class="orders-toolbar-btn" onclick="resetWeekSelection()" title="Filtreleri temizle">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M6 6l1.5 14h9L18 6"/></svg>
+                        Temizle
+                    </button>
+                </div>
+                <div class="orders-toolbar-right">
+                    <span class="orders-result-count" id="ordersResultCount"></span>
+                    <button class="orders-toolbar-btn" onclick="exportToExcel()">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        Excel
+                    </button>
+                    <button class="orders-toolbar-btn" onclick="addManualRequestRow()">Manuel Talep Geç</button>
+                    <button class="orders-toolbar-btn orders-toolbar-btn-danger" id="ordersResetBtn" onclick="deleteAllOrders()">Sıfırla</button>
+                </div>
+            </div>
+
+            <!-- Table -->
+            <div class="orders-table-wrap">
+                <div class="orders-table-scroll">
+                    <table class="data-table excel-table">
+                        <thead>
+                            <tr class="filter-header-row">
+                                <th style="min-width: 60px;">
+                                    <div>Hafta</div>
+                                </th>
+                                <th style="min-width: 100px;">
+                                    <div>Talep Tarihi</div>
+                                </th>
+                                <th style="min-width: 80px;">
+                                    <div>Talep Eden</div>
+                                </th>
+                                <th style="min-width: 80px;">
+                                    <div>Katalog No</div>
+                                </th>
+                                <th style="min-width: 80px;">
+                                    <div>Madde No</div>
+                                </th>
+                                <th style="min-width: 120px;">
+                                    <div>Rxn Adı</div>
+                                </th>
+                                <th style="min-width: 100px;">
+                                    <div>Format</div>
+                                </th>
+                                <th style="min-width: 80px;">
+                                    <div>Talep Miktar</div>
+                                </th>
+                                <th style="min-width: 80px;">
+                                    <div>Üretilen Miktar</div>
+                                </th>
+                                <th style="min-width: 100px;">
+                                    <div>Sipariş No</div>
+                                </th>
+                                <th style="min-width: 100px;">
+                                    <div>Çıkış Tarihi</div>
+                                </th>
+                                <th style="min-width: 150px;">
+                                    <div>Talep Eden Not</div>
+                                </th>
+                                <th style="min-width: 100px;">
+                                    <div>Lot No</div>
+                                </th>
+                                <th style="min-width: 150px;">
+                                    <div>Ekip 1 Not</div>
+                                </th>
+                                <th style="min-width: 150px;">
+                                    <div>Ekip 2 Not</div>
+                                </th>
+                                <th style="min-width: 140px;">
+                                    <div>Durum</div>
+                                </th>
+                                <th style="min-width: 80px;">İşlemler</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ordersTableBody">
+                        </tbody>
+                    </table>
+                </div>
+                <div class="orders-pagination" id="paginationContainer"></div>
+            </div>
+
+            <div id="emptyState" class="empty-state" style="display: none;">
+                <div class="empty-state-icon">📭</div>
+                <h3>Henüz talep bulunmuyor</h3>
+                <p>Filtrelerinizi kontrol edin veya yeni talep ekleyin</p>
+            </div>
+        </section>
+
+        <!-- New Order Section -->
+        <section id="new-order" class="section">
+            <div class="section-panel">
+            <div class="glass-card">
+                <div class="card-header">
+                    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                        <h2 class="card-title">Yeni talep bilgileri</h2>
+                        <div>
+                            <input type="file" id="excelUpload" accept=".xlsx, .xls" style="display: none;"
+                                onchange="handleExcelUpload(this)">
+                            <button type="button" class="btn btn-primary"
+                                style="background: var(--success); border-color: var(--success);"
+                                onclick="document.getElementById('excelUpload').click()">
+                                Excel dosyasından içe aktar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <form id="orderForm" onsubmit="handleSubmit(event)">
+                    <div id="orderFormFeedback" class="form-feedback" role="status" aria-live="polite"></div>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label class="form-label">Talep Haftası *</label>
+                            <select class="form-select" id="weekNumber" required>
+                                <option value="">Seçiniz...</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Talep Tarihi *</label>
+                            <input type="date" class="form-input" id="requestDate" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Talep Eden *</label>
+                            <input type="text" class="form-input" id="requester" placeholder="Örn: Seda Yılmaz" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Katalog No *</label>
+                            <div class="autocomplete-wrapper">
+                                <input type="text" class="form-input" id="catalogNo" placeholder="Örn: AAV01100 veya YM-P-02378"
+                                    autocomplete="off" required>
+                                <div id="catalogNo-list" class="autocomplete-items"></div>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Talep Edilen Miktar (Kutu) *</label>
+                            <input type="number" class="form-input" id="quantity" placeholder="Örn: 96 kutu" required
+                                min="1">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Sipariş No</label>
+                            <input type="text" class="form-input" id="orderNo" placeholder="Örn: STS0007421">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Sipariş Çıkış Tarihi</label>
+                            <input type="date" class="form-input" id="deliveryDate">
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-top: 1.5rem;">
+                        <label class="form-label">Talep Eden Not</label>
+                        <textarea class="form-textarea" id="requesterNote" placeholder="Örn: Müşteri sevkiyatı öncesi cuma vardiyasında hazır olmalı."></textarea>
+                    </div>
+                    <div class="form-actions" style="margin-top: 1rem;">
+                        <button type="submit" class="btn btn-primary" id="submitOrderBtn">
+                            Talebi kaydet
+                        </button>
+                        <button type="button" class="btn btn-secondary" onclick="resetForm()">
+                            Formu temizle
+                        </button>
+                    </div>
+                </form>
+            </div>
+            <aside class="helper-panel">
+                <h3>Form mantığı</h3>
+                <p>Bu alan rehber olarak durur; kullanıcıyı durdurmaz. Ama ekip içi veri kalitesini korumak için hangi bilginin neden istendiğini açıklar.</p>
+                <ul>
+                    <li><strong>Talep haftası ve tarihi</strong> Planlama toplantılarında doğru haftaya düşmesi için önce zaman bilgisi alınır.</li>
+                    <li><strong>Katalog no ve miktar</strong> Üretim hesabı ve ürün ağacı eşleşmesi için formun merkezine alınır.</li>
+                    <li><strong>Sipariş ve teslim tarihi</strong> Her talepte zorunlu değildir, bu yüzden ikincil yoğunlukta tutuldu.</li>
+                    <li><strong>Not alan</strong> ?Acil? gibi genel ifadeler yerine vardiya, mteri veya kullanm senaryosu yazlmas hedeflenir.</li>
+                </ul>
+            </aside>
+            </div>
+        </section>
+
+        <!-- QC View Section (New Page for QC) -->
+        <section id="qc-view" class="section">
+            <div class="glass-card">
+                <div class="card-header">
+                    <h2 class="card-title">⏳ QC Bekleyen Talepler</h2>
+                    <button class="btn btn-secondary btn-sm" onclick="switchTab('dashboard')">
+                        gY"T Dashboard'a Dön
+                    </button>
+                </div>
+                <!-- Filtre -->
+                <div style="margin-bottom: 1rem;">
+                    <input type="text" id="qcViewSearch" class="form-input"
+                        placeholder="Ara... (Rxn Adı, Format, Katalog No, Sipariş No...)" onkeyup="filterQcView()"
+                        style="width: 100%; padding: 12px 16px; font-size: 0.95rem;">
+                </div>
+                <div class="table-container">
+                    <table class="data-table" style="width: 100%;">
+                        <thead>
+                            <tr>
+                                <th>Rxn Adı</th>
+                                <th>Format</th>
+                                <th>Miktar</th>
+                                <th>Katalog No</th>
+                                <th>Sipariş No</th>
+                                <th>Durum</th>
+                                <th>İşlemler</th>
+                            </tr>
+                        </thead>
+                        <tbody id="qcViewBody">
+                            <!-- Populated by renderQcView -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- Destroyed View Section (New Page for Destroyed) -->
+        <section id="destroyed-view" class="section">
+            <div class="glass-card">
+                <div class="card-header">
+                    <h2 class="card-title" style="color: var(--danger);">İmha Edilen Talepler</h2>
+                    <button class="btn btn-secondary btn-sm" onclick="switchTab('dashboard')">
+                        gY"T Dashboard'a Dön
+                    </button>
+                </div>
+                <!-- Filtre -->
+                <div style="margin-bottom: 1rem;">
+                    <input type="text" id="destroyedSearch" class="form-input"
+                        placeholder="Ara... (Rxn Adı, Format, Katalog No, Sipariş No...)"
+                        onkeyup="filterDestroyedView()" style="width: 100%; padding: 12px 16px; font-size: 0.95rem;">
+                </div>
+                <div class="table-container">
+                    <table class="data-table" style="width: 100%;">
+                        <thead>
+                            <tr>
+                                <th>Rxn Adı</th>
+                                <th>Format</th>
+                                <th>Miktar</th>
+                                <th>Katalog No</th>
+                                <th>Sipariş No</th>
+                                <th>Durum</th>
+                            </tr>
+                        </thead>
+                        <tbody id="destroyedViewBody">
+                            <!-- Populated by renderDestroyedView -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- İşlemde View Section -->
+        <section id="islemde-view" class="section">
+            <div class="glass-card">
+                <div class="card-header">
+                    <h2 class="card-title" style="color: var(--info);">İşlemde Olan Talepler</h2>
+                    <button class="btn btn-secondary btn-sm" onclick="switchTab('dashboard')">
+                        gY"T Dashboard'a Dön
+                    </button>
+                </div>
+                <!-- Filtre -->
+                <div style="margin-bottom: 1rem;">
+                    <input type="text" id="islemdeSearch" class="form-input"
+                        placeholder="Ara... (Rxn Adı, Format, Katalog No, Sipariş No...)"
+                        onkeyup="filterIslemdeView()" style="width: 100%; padding: 12px 16px; font-size: 0.95rem;">
+                </div>
+                <div class="table-container">
+                    <table class="data-table" style="width: 100%;">
+                        <thead>
+                            <tr>
+                                <th>Rxn Adı</th>
+                                <th>Format</th>
+                                <th>Miktar</th>
+                                <th>Katalog No</th>
+                                <th>Sipariş No</th>
+                                <th>Durum</th>
+                                <th>İşlemler</th>
+                            </tr>
+                        </thead>
+                        <tbody id="islemdeViewBody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- Teslim Edildi View Section -->
+        <section id="teslim-view" class="section">
+            <div class="glass-card">
+                <div class="card-header">
+                    <h2 class="card-title" style="color: var(--success);">Teslim Edilen Talepler</h2>
+                    <button class="btn btn-secondary btn-sm" onclick="switchTab('dashboard')">
+                        gY"T Dashboard'a Dön
+                    </button>
+                </div>
+                <!-- Filtre -->
+                <div style="margin-bottom: 1rem;">
+                    <input type="text" id="teslimSearch" class="form-input"
+                        placeholder="Ara... (Rxn Adı, Format, Katalog No, Sipariş No...)"
+                        onkeyup="filterTeslimView()" style="width: 100%; padding: 12px 16px; font-size: 0.95rem;">
+                </div>
+                <div class="table-container">
+                    <table class="data-table" style="width: 100%;">
+                        <thead>
+                            <tr>
+                                <th>Rxn Adı</th>
+                                <th>Format</th>
+                                <th>Miktar</th>
+                                <th>Katalog No</th>
+                                <th>Sipariş No</th>
+                                <th>Durum</th>
+                            </tr>
+                        </thead>
+                        <tbody id="teslimViewBody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- Dağıtılanlar View Section -->
+        <section id="dagitilan-view" class="section">
+            <div class="glass-card">
+                <div class="card-header">
+                    <h2 class="card-title" style="color: #f97316;">Dağıtılan Talepler</h2>
+                    <button class="btn btn-secondary btn-sm" onclick="switchTab('dashboard')">
+                        Dashboard'a Dön
+                    </button>
+                </div>
+                <!-- Filtre -->
+                <div style="margin-bottom: 1rem;">
+                    <input type="text" id="dagitilanSearch" class="form-input"
+                        placeholder="Ara... (Rxn Adı, Format, Katalog No, Sipariş No...)"
+                        onkeyup="filterDagitilanView()" style="width: 100%; padding: 12px 16px; font-size: 0.95rem;">
+                </div>
+                <div class="table-container">
+                    <table class="data-table" style="width: 100%;">
+                        <thead>
+                            <tr>
+                                <th>Rxn Adı</th>
+                                <th>Format</th>
+                                <th>Miktar</th>
+                                <th>Katalog No</th>
+                                <th>Sipariş No</th>
+                                <th>Durum</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dagitilanViewBody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- QC Tekrar View Section -->
+        <section id="qcrepeat-view" class="section">
+            <div class="glass-card">
+                <div class="card-header">
+                    <h2 class="card-title" style="color: #f59e0b;">QC Tekrarlanacak Talepler</h2>
+                    <button class="btn btn-secondary btn-sm" onclick="switchTab('dashboard')">
+                        Dashboard'a Dön
+                    </button>
+                </div>
+                <!-- Filtre -->
+                <div style="margin-bottom: 1rem;">
+                    <input type="text" id="qcRepeatSearch" class="form-input"
+                        placeholder="Ara... (Rxn Adı, Format, Katalog No, Sipariş No...)"
+                        onkeyup="filterQcRepeatView()" style="width: 100%; padding: 12px 16px; font-size: 0.95rem;">
+                </div>
+                <div class="table-container">
+                    <table class="data-table" style="width: 100%;">
+                        <thead>
+                            <tr>
+                                <th>Rxn Adı</th>
+                                <th>Format</th>
+                                <th>Miktar</th>
+                                <th>Katalog No</th>
+                                <th>Sipariş No</th>
+                                <th>Talep Eden</th>
+                                <th>Durum</th>
+                                <th>İşlemler</th>
+                            </tr>
+                        </thead>
+                        <tbody id="qcRepeatViewBody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- Etiketlendi View Section -->
+        <section id="etiketlendi-view" class="section">
+            <div class="glass-card">
+                <div class="card-header">
+                    <h2 class="card-title" style="color: #ec4899;">Etiketlenen Talepler</h2>
+                    <button class="btn btn-secondary btn-sm" onclick="switchTab('dashboard')">
+                        gY"T Dashboard'a Dön
+                    </button>
+                </div>
+                <!-- Filtre -->
+                <div style="margin-bottom: 1rem;">
+                    <input type="text" id="etiketlendiSearch" class="form-input"
+                        placeholder="Ara... (Rxn Adı, Format, Katalog No, Sipariş No...)"
+                        onkeyup="filterEtiketlendiView()" style="width: 100%; padding: 12px 16px; font-size: 0.95rem;">
+                </div>
+                <div class="table-container">
+                    <table class="data-table" style="width: 100%;">
+                        <thead>
+                            <tr>
+                                <th>Rxn Adı</th>
+                                <th>Format</th>
+                                <th>Miktar</th>
+                                <th>Katalog No</th>
+                                <th>Sipariş No</th>
+                                <th>Talep Eden</th>
+                                <th>Durum</th>
+                                <th>İşlemler</th>
+                            </tr>
+                        </thead>
+                        <tbody id="etiketlendiViewBody">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Bulk Actions Panel -->
+    <div id="bulkActionsPanelContainer"></div>
+
+    <!-- Detail Modal -->
+    <div class="modal-overlay" id="detailModal">
+        <div class="modal" style="max-width: 700px;">
+            <div class="modal-header">
+                <h3 class="modal-title">gY"< Talep Detayı</h3>
+                <button class="modal-close" onclick="closeDetailModal()">&times;</button>
+            </div>
+            <form id="detailForm" onsubmit="handleDetailSave(event)">
+                <input type="hidden" id="detailId">
+
+                <!-- Info Grid -->
+                <div id="detailInfoGrid"
+                    style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 1.5rem; padding: 1rem; background: var(--bg-secondary); border-radius: 12px;">
+                </div>
+
+                <h4 style="margin-bottom: 1rem; color: var(--accent-primary);">Talep Bilgileri</h4>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">Hafta</label>
+                        <input type="number" class="form-input" id="detailWeekNumber" min="1" max="53">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Talep Tarihi</label>
+                        <input type="date" class="form-input" id="detailRequestDate">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Talep Eden</label>
+                        <input type="text" class="form-input" id="detailRequester">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Sipariş No</label>
+                        <input type="text" class="form-input" id="detailOrderNo">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Katalog No</label>
+                        <input type="text" class="form-input" id="detailCatalogNo">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Madde No</label>
+                        <input type="text" class="form-input" id="detailMaterialNo" list="detailMaterialNoOptions" autocomplete="off" oninput="handleDetailMaterialNoInput(this.value)">
+                        <datalist id="detailMaterialNoOptions"></datalist>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Rxn Adı</label>
+                        <input type="text" class="form-input" id="detailRxnName">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Format</label>
+                        <input type="text" class="form-input" id="detailFormat">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Talep Miktarı</label>
+                        <input type="number" class="form-input" id="detailQuantity" min="0">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Teslim Tarihi</label>
+                        <input type="date" class="form-input" id="detailDeliveryDate">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Lot No</label>
+                        <input type="text" class="form-input" id="detailLotNo">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Talep Eden Not</label>
+                        <input type="text" class="form-input" id="detailRequesterNote">
+                    </div>
+                </div>
+
+                <h4 style="margin-bottom: 1rem; color: var(--accent-primary);">Üretim Bilgileri</h4>
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label class="form-label">Üretim Emri No</label>
+                        <input type="text" class="form-input" id="detailProductionOrderNo"
+                            placeholder="Örn: UO-2025-001">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Üreten Kişi</label>
+                        <input type="text" class="form-input" id="detailProducer" placeholder="İsim Giriniz">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Üretilen Miktar</label>
+                        <input type="number" class="form-input" id="detailProducedQty" placeholder="Üretilen miktar"
+                            min="0">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">QC Onaylayan</label>
+                        <select class="form-select" id="detailQcApprover">
+                            <option value="">Seçiniz</option>
+                            <option value="MG">MG</option>
+                            <option value="CÖ">CÖ</option>
+                            <option value="SK">SK</option>
+                            <option value="CY">CY</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Durum</label>
+                        <select class="form-select" id="detailStatus">
+                            <option value="-">- (İşlem Bekliyor)</option>
+                            <option value="QC Bekliyor">QC Bekliyor</option>
+                            <option value="QC Geçti">QC Geçti</option>
+                            <option value="Teslim Edildi">Teslim Edildi</option>
+                            <option value="Etiketlendi">Etiketlendi</option>
+                            <option value="QC tekrarlanacak">QC Tekrarlanacak</option>
+                            <option value="İmha edilecek">İmha Edilecek</option>
+                            <option value="QC GİDECEK">QC Gidecek</option>
+                            <option value="Dağıtıldı">Dağıtıldı</option>
+                            <option value="İptal Edildi">İptal Edildi</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-actions" style="margin-top: 1.5rem;">
+                    <button type="submit" class="btn btn-primary">Kaydet</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeDetailModal()">İptal</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    </div>
+
+    <!-- Modals Removed (Converted to Sections) -->
+
+    <!-- Change History Modal -->
+    <div class="modal-overlay" id="changeHistoryModal">
+        <div class="modal" style="max-width: 700px;">
+            <div class="modal-header">
+                <h3 class="modal-title">Değişiklik Geçmişi</h3>
+                <button class="modal-close" onclick="closeChangeHistoryModal()">&times;</button>
+            </div>
+            <div id="changeHistoryContent" style="padding: 1.5rem; max-height: 500px; overflow-y: auto;">
+            </div>
+            <div style="padding: 1rem; text-align: right;">
+                <button class="btn btn-secondary" onclick="closeChangeHistoryModal()">Kapat</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+
+    <!-- Destroyed Details Modal Removed -->
+
+    <!-- Toast Container -->
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script defer src="/js/orders-renderer-v1.js?v=20260508-performance-split"></script>
+    <script defer src="/js/app-main-v4.js?v=20260508-sales-lines-column-order-prefs"></script>
+</body>
+</html>

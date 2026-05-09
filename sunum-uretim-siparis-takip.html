@@ -1,0 +1,667 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Üretim ve Sipariş Takip Sistemi Sunumu</title>
+  <style>
+    :root {
+      --bg: #f4f6f8;
+      --ink: #101827;
+      --muted: #617085;
+      --line: #dfe5ec;
+      --card: #ffffff;
+      --blue: #2563eb;
+      --green: #0f8b5f;
+      --red: #dc2626;
+      --amber: #d97706;
+      --dark: #1f2937;
+      --soft-blue: #eaf1ff;
+      --soft-green: #eaf8f1;
+      --soft-red: #fff1f1;
+      --soft-amber: #fff7e8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Segoe UI", Arial, sans-serif;
+      line-height: 1.45;
+    }
+    .deck {
+      width: min(1180px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 24px 0 64px;
+    }
+    .slide {
+      min-height: 660px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      box-shadow: 0 18px 42px rgba(15, 23, 42, 0.08);
+      margin: 0 0 28px;
+      padding: 38px;
+      position: relative;
+      overflow: hidden;
+    }
+    .slide::after {
+      content: attr(data-slide);
+      position: absolute;
+      right: 26px;
+      bottom: 18px;
+      color: #98a4b3;
+      font-size: 13px;
+    }
+    .topline {
+      display: flex;
+      justify-content: space-between;
+      gap: 24px;
+      align-items: center;
+      margin-bottom: 22px;
+    }
+    .eyebrow {
+      color: var(--blue);
+      font-weight: 700;
+      font-size: 13px;
+      letter-spacing: .03em;
+      text-transform: uppercase;
+    }
+    h1, h2, h3 { margin: 0; letter-spacing: -0.02em; }
+    h1 { font-size: 52px; line-height: 1.02; max-width: 820px; }
+    h2 { font-size: 34px; line-height: 1.12; }
+    h3 { font-size: 18px; }
+    p { margin: 0; color: var(--muted); }
+    .lead {
+      font-size: 19px;
+      max-width: 760px;
+      margin-top: 18px;
+    }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 26px;
+      align-items: start;
+    }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      height: 28px;
+      padding: 0 11px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: #f8fafc;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      margin: 0 6px 8px 0;
+      white-space: nowrap;
+    }
+    .pill.blue { color: #1d4ed8; background: var(--soft-blue); border-color: #cfe0ff; }
+    .pill.green { color: #08764f; background: var(--soft-green); border-color: #ccecdc; }
+    .pill.red { color: #b91c1c; background: var(--soft-red); border-color: #ffd5d5; }
+    .pill.amber { color: #a55706; background: var(--soft-amber); border-color: #f3d49a; }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+      padding: 18px;
+    }
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      padding: 16px;
+      background: #fbfcfe;
+    }
+    .metric strong {
+      display: block;
+      font-size: 30px;
+      margin-bottom: 4px;
+    }
+    .metric span { color: var(--muted); font-size: 13px; }
+    .steps {
+      display: grid;
+      gap: 12px;
+      margin-top: 24px;
+    }
+    .step {
+      display: grid;
+      grid-template-columns: 34px 1fr;
+      gap: 12px;
+      align-items: start;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fbfcfe;
+    }
+    .num {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--blue);
+      color: #fff;
+      font-weight: 800;
+      font-size: 13px;
+    }
+    .step b { display: block; margin-bottom: 3px; }
+    .screen {
+      border: 1px solid #cfd8e3;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #fff;
+      box-shadow: 0 18px 36px rgba(15, 23, 42, .12);
+    }
+    .screenbar {
+      height: 38px;
+      background: #f2f5f8;
+      border-bottom: 1px solid #d9e1ea;
+      display: flex;
+      align-items: center;
+      padding: 0 14px;
+      gap: 7px;
+    }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: #cbd5e1; }
+    .dot.red { background: #ef4444; }
+    .dot.amber { background: #f59e0b; }
+    .dot.green { background: #22c55e; }
+    .url {
+      margin-left: 10px;
+      height: 22px;
+      background: #fff;
+      border: 1px solid #e1e7ef;
+      border-radius: 999px;
+      flex: 1;
+      color: #748095;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+    }
+    .screenbody { padding: 18px; background: #f8fafc; }
+    .app-header {
+      height: 50px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      border-bottom: 1px solid #e4e9f0;
+      background: #fff;
+      padding: 0 16px;
+    }
+    .brand { font-weight: 800; font-size: 14px; }
+    .nav {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .nav span {
+      padding: 7px 11px;
+      border: 1px solid #e1e7ef;
+      border-radius: 7px;
+      font-size: 12px;
+      color: #506176;
+      background: #fff;
+    }
+    .nav span.active {
+      background: #2563eb;
+      color: #fff;
+      border-color: #2563eb;
+    }
+    .toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin: 14px 0;
+    }
+    .searchbox {
+      width: 170px;
+      height: 28px;
+      border: 1px solid #dce4ed;
+      border-radius: 7px;
+      background: #fff;
+      color: #9aa5b4;
+      padding: 0 10px;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+    }
+    .btn {
+      height: 28px;
+      padding: 0 10px;
+      border-radius: 6px;
+      border: 1px solid #dce4ed;
+      background: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      color: #344256;
+      display: inline-flex;
+      align-items: center;
+    }
+    .btn.primary { background: var(--blue); color: #fff; border-color: var(--blue); }
+    .btn.red { color: #dc2626; border-color: #fecaca; background: #fff5f5; }
+    .tabs {
+      display: flex;
+      gap: 0;
+      margin: 0 0 14px;
+    }
+    .tabs span {
+      padding: 9px 14px;
+      border: 1px solid #dce4ed;
+      border-right: none;
+      background: #fff;
+      font-size: 12px;
+      color: #526176;
+    }
+    .tabs span:first-child { border-radius: 7px 0 0 7px; }
+    .tabs span:last-child { border-radius: 0 7px 7px 0; border-right: 1px solid #dce4ed; }
+    .tabs span.active { background: #eef4ff; color: #1d4ed8; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      overflow: hidden;
+      font-size: 12px;
+    }
+    th {
+      text-align: left;
+      color: #667085;
+      background: #f5f7fa;
+      font-size: 11px;
+      padding: 9px 10px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    td {
+      padding: 10px;
+      border-bottom: 1px solid #edf1f5;
+      color: #172033;
+      white-space: nowrap;
+    }
+    tr:last-child td { border-bottom: none; }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      height: 22px;
+      padding: 0 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 800;
+    }
+    .badge.blue { color: #1d4ed8; background: #eaf1ff; }
+    .badge.green { color: #08764f; background: #eaf8f1; }
+    .badge.red { color: #b91c1c; background: #fff1f1; }
+    .badge.amber { color: #a55706; background: #fff7e8; }
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+    .dash-card {
+      border: 1px solid #e1e7ef;
+      background: #fff;
+      border-radius: 9px;
+      padding: 13px;
+    }
+    .dash-card b { display: block; font-size: 24px; margin-top: 6px; }
+    .dash-card span { font-size: 12px; color: var(--muted); }
+    .role-table td, .role-table th { white-space: normal; }
+    .check { color: var(--green); font-weight: 900; }
+    .cross { color: var(--red); font-weight: 900; }
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 12px;
+      margin-top: 24px;
+    }
+    .flow .card {
+      min-height: 125px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .flow small { color: var(--muted); }
+    .note {
+      margin-top: 18px;
+      padding: 14px 16px;
+      border-radius: 10px;
+      background: #f8fafc;
+      border: 1px solid var(--line);
+      color: var(--muted);
+    }
+    .cover {
+      display: grid;
+      grid-template-columns: 1fr 430px;
+      align-items: center;
+      gap: 36px;
+    }
+    .mini-stack {
+      display: grid;
+      gap: 12px;
+    }
+    .mini-shot {
+      border: 1px solid #dce4ed;
+      border-radius: 10px;
+      background: #fff;
+      padding: 14px;
+      box-shadow: 0 10px 26px rgba(15,23,42,.08);
+    }
+    .mini-shot h3 { font-size: 15px; margin-bottom: 8px; }
+    .mini-line {
+      height: 8px;
+      border-radius: 999px;
+      background: #e5eaf1;
+      margin: 8px 0;
+    }
+    .mini-line.blue { background: #bfd2ff; width: 84%; }
+    .mini-line.green { background: #bdebd5; width: 68%; }
+    .mini-line.amber { background: #f4d292; width: 75%; }
+    @media print {
+      body { background: #fff; }
+      .deck { width: 100%; padding: 0; }
+      .slide {
+        page-break-after: always;
+        min-height: 100vh;
+        margin: 0;
+        border-radius: 0;
+        box-shadow: none;
+        border: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="deck">
+    <section class="slide cover" data-slide="01">
+      <div>
+        <div class="eyebrow">Kullanıcı Eğitim Sunumu</div>
+        <h1>Üretim ve Sipariş Takip Sistemi</h1>
+        <p class="lead">Satış siparişinden üretim talebine kadar tüm sürecin tek ekranda izlenmesi, departman bazlı yetkilendirilmesi ve acil işlerin görünür hale gelmesi.</p>
+        <div style="margin-top: 26px;">
+          <span class="pill blue">Satış satırları</span>
+          <span class="pill green">Talep listesi</span>
+          <span class="pill amber">Acil beklenen</span>
+          <span class="pill red">Yetki kontrolü</span>
+        </div>
+      </div>
+      <div class="mini-stack">
+        <div class="mini-shot">
+          <h3>Dashboard</h3>
+          <div class="mini-line blue"></div>
+          <div class="mini-line green"></div>
+          <div class="mini-line amber"></div>
+        </div>
+        <div class="mini-shot">
+          <h3>Talep Listesi</h3>
+          <table>
+            <tr><th>Hafta</th><th>Çıkış</th><th>Durum</th></tr>
+            <tr><td>6</td><td>19.04.2026</td><td><span class="badge amber">QC Bekliyor</span></td></tr>
+            <tr><td>7</td><td>22.04.2026</td><td><span class="badge green">QC Geçti</span></td></tr>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="02">
+      <div class="topline">
+        <div>
+          <div class="eyebrow">Sistem Özeti</div>
+          <h2>Ne problem çözüyor?</h2>
+        </div>
+      </div>
+      <div class="grid-2">
+        <div>
+          <div class="steps">
+            <div class="step"><span class="num">1</span><div><b>Siparişler tek yerde toplanır.</b><p>Excel’den gelen veya manuel girilen satış satırları aynı takip ekranında izlenir.</p></div></div>
+            <div class="step"><span class="num">2</span><div><b>Katalogtan bileşene dönüşür.</b><p>Ürün ağacı sayesinde katalog numarası ilgili bileşen taleplerine ayrılır.</p></div></div>
+            <div class="step"><span class="num">3</span><div><b>Departmanlar ayrışır.</b><p>Satış, lojistik, üretim ve admin farklı yetkilerle sistemi kullanır.</p></div></div>
+            <div class="step"><span class="num">4</span><div><b>Acil işler görünür olur.</b><p>Çıkış tarihine 3 gün kalan veya geciken bileşenler ayrı listede takip edilir.</p></div></div>
+          </div>
+        </div>
+        <div class="screen">
+          <div class="screenbar"><span class="dot red"></span><span class="dot amber"></span><span class="dot green"></span><div class="url">uretim-siparis-takip.netlify.app</div></div>
+          <div class="app-header"><div class="brand">Üretim ve Sipariş Takip Sistemi</div><div class="nav"><span class="active">Dashboard</span><span>Talepler</span><span>Satış satırları</span></div></div>
+          <div class="screenbody">
+            <div class="dashboard-grid">
+              <div class="dash-card"><span>Değişiklikler</span><b>6</b></div>
+              <div class="dash-card"><span>Geciken</span><b style="color:var(--red)">11</b></div>
+              <div class="dash-card"><span>Yaklaşan</span><b style="color:var(--amber)">42</b></div>
+              <div class="dash-card"><span>Çıkış</span><b style="color:var(--green)">2</b></div>
+            </div>
+            <table>
+              <tr><th>Sipariş No</th><th>Müşteri</th><th>Ürün</th><th>Teslim</th></tr>
+              <tr><td>ST0001096</td><td>I.T.A.</td><td>BS-GE-MX6L-25</td><td>19.04.2026</td></tr>
+              <tr><td>ST0001101</td><td>NESLAB</td><td>BS-HPV-S-25-S1</td><td>23.04.2026</td></tr>
+              <tr><td>ST0001104</td><td>Bioexsen</td><td>LC-00035</td><td>25.04.2026</td></tr>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="03">
+      <div class="eyebrow">Rol ve Yetki Matrisi</div>
+      <h2>Kim neyi kullanabiliyor?</h2>
+      <p class="lead">Sistem, her departmana sadece kendi iş akışı için gerekli alanları gösterir.</p>
+      <div style="margin-top: 26px;">
+        <table class="role-table">
+          <tr>
+            <th>Rol / Departman</th>
+            <th>Satış Satırları</th>
+            <th>Talep Listesi</th>
+            <th>Talep Geç</th>
+            <th>Belge No'dan Talep Durumu</th>
+            <th>Silme / Sıfırlama</th>
+            <th>Admin Paneli</th>
+          </tr>
+          <tr><td><b>Admin</b></td><td class="check">Var</td><td class="check">Var</td><td class="check">Var</td><td class="check">Var</td><td class="check">Var</td><td class="check">Var</td></tr>
+          <tr><td><b>Üretim</b></td><td class="check">Var</td><td class="check">Var</td><td class="check">Var</td><td class="check">Var</td><td class="cross">Yok</td><td class="cross">Yok</td></tr>
+          <tr><td><b>Satış</b></td><td class="check">Var</td><td class="cross">Yok</td><td class="cross">Yok</td><td class="cross">Yok</td><td class="cross">Yok</td><td class="cross">Yok</td></tr>
+          <tr><td><b>Lojistik</b></td><td class="check">Var</td><td class="cross">Yok</td><td class="cross">Yok</td><td class="cross">Yok</td><td class="cross">Yok</td><td class="cross">Yok</td></tr>
+        </table>
+      </div>
+      <div class="note"><b>Önemli:</b> Satış ve lojistik ekipleri talebin geçilip geçilmediğini belge numarası üzerinden göremez. Bu ekiplerde talep geçme aksiyonu yerine sadece değişiklik geçmişi görünür.</div>
+    </section>
+
+    <section class="slide" data-slide="04">
+      <div class="topline">
+        <div>
+          <div class="eyebrow">Satış Satırları</div>
+          <h2>Sipariş nasıl girilir?</h2>
+        </div>
+        <span class="pill blue">Excel + Manuel giriş</span>
+      </div>
+      <div class="grid-2">
+        <div class="screen">
+          <div class="screenbar"><span class="dot red"></span><span class="dot amber"></span><span class="dot green"></span><div class="url">Satış satırları</div></div>
+          <div class="app-header"><div class="brand">Satış satırları</div><div class="nav"><span>Değişiklikler 3</span><span>Geciken 10</span><span>Yaklaşan 41</span></div></div>
+          <div class="screenbody">
+            <div class="toolbar">
+              <div class="searchbox">Ara...</div>
+              <div><span class="btn primary">Manuel Sipariş</span> <span class="btn">Excel</span> <span class="btn">CSV</span></div>
+            </div>
+            <table>
+              <tr><th>Talep Geç</th><th>Hafta</th><th>Temsilci</th><th>Belge No</th><th>Ürün No</th><th>Teslim Tarihi</th><th>Durum</th></tr>
+              <tr><td><span class="btn primary">Talep Geç</span></td><td>6</td><td>OK</td><td>ST0001096</td><td>BS-GE-MX6L-25</td><td>19.04.2026</td><td><span class="badge amber">Planlandı</span></td></tr>
+              <tr><td><span class="btn">Değişiklikler</span></td><td>6</td><td>MSK</td><td>ST0001101</td><td>BS-HPV-S-25</td><td>23.04.2026</td><td><span class="badge green">Hazır</span></td></tr>
+            </table>
+          </div>
+        </div>
+        <div>
+          <div class="steps">
+            <div class="step"><span class="num">1</span><div><b>Excel yüklenir veya manuel satır açılır.</b><p>Satış dosyası sisteme alınır; gerekirse üstten manuel sipariş satırı eklenir.</p></div></div>
+            <div class="step"><span class="num">2</span><div><b>Hafta seçilir.</b><p>Hafta alanı 1-52 arasında değiştirilebilir.</p></div></div>
+            <div class="step"><span class="num">3</span><div><b>Ürün no / katalog no girilir.</b><p>Katalog sistemde varsa üretim talebi bileşenlere ayrılabilir.</p></div></div>
+            <div class="step"><span class="num">4</span><div><b>Durum takip edilir.</b><p>Planlandı, hazır, lojistikte, çıktı veya iptal gibi durumlar renkle takip edilir.</p></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="05">
+      <div class="eyebrow">Talep Geçme</div>
+      <h2>Satış siparişi nasıl talebe dönüşür?</h2>
+      <div class="flow">
+        <div class="card"><h3>Satış Satırı</h3><small>Belge no, müşteri, ürün no, miktar ve teslim tarihi gelir.</small><span class="pill blue">ST0001096</span></div>
+        <div class="card"><h3>Katalog Kontrolü</h3><small>Ürün no sistemdeki ürün ağacında aranır.</small><span class="pill amber">BS-GE-MX6L-25</span></div>
+        <div class="card"><h3>Bileşenler</h3><small>Ürün ağacındaki madde no ve Rxn bilgileri bulunur.</small><span class="pill green">YM-P-02378</span></div>
+        <div class="card"><h3>Talep Listesi</h3><small>Her bileşen talep satırı olarak eklenir.</small><span class="pill blue">Talep oluşturuldu</span></div>
+        <div class="card"><h3>Takip</h3><small>Durum, çıkış tarihi ve değişiklik geçmişi izlenir.</small><span class="pill green">QC Bekliyor</span></div>
+      </div>
+      <div class="note">Tekil talep geçme ve toplu talep geçme sadece admin ve üretim departmanı tarafından kullanılabilir.</div>
+    </section>
+
+    <section class="slide" data-slide="06">
+      <div class="topline">
+        <div>
+          <div class="eyebrow">Talep Listesi</div>
+          <h2>Talepler nasıl takip edilir?</h2>
+        </div>
+        <span class="pill green">Filtre + Sekme + Durum</span>
+      </div>
+      <div class="screen">
+        <div class="screenbar"><span class="dot red"></span><span class="dot amber"></span><span class="dot green"></span><div class="url">Talepler</div></div>
+        <div class="app-header"><div class="brand">Talep Listesi</div><div class="nav"><span>Dashboard</span><span class="active">Talepler</span><span>Satış satırları</span></div></div>
+        <div class="screenbody">
+          <div class="tabs"><span>Tümü</span><span class="active">Acil beklenen</span><span>vCAP</span><span>Liyofilize</span><span>Tüp format</span><span>Karşılığı olmayan</span></div>
+          <div class="toolbar"><div class="searchbox">Ara...</div><div><span class="btn">Tüm Haftalar</span><span class="btn">Temizle</span><span class="btn">Excel</span></div></div>
+          <table>
+            <tr><th>Hafta</th><th>Talep Tarihi</th><th>Çıkış Tarihi</th><th>Sipariş No</th><th>Talep Eden</th><th>Katalog No</th><th>Madde No</th><th>Durum</th></tr>
+            <tr><td><span class="badge blue">6</span></td><td>19.04.2026</td><td>19.04.2026</td><td>ST0007401</td><td>OK</td><td>BS-HP-25</td><td>YM-P-02378</td><td><span class="badge amber">QC Bekliyor</span></td></tr>
+            <tr><td><span class="badge blue">6</span></td><td>19.04.2026</td><td>22.04.2026</td><td>ST0007403</td><td>MSK</td><td>BS-RT-100</td><td>YM-P-01101</td><td><span class="badge green">QC Geçti</span></td></tr>
+            <tr><td><span class="badge blue">7</span></td><td>20.04.2026</td><td>23.04.2026</td><td>ST0007410</td><td>Admin</td><td>BS-TR-25</td><td>YM-P-03040</td><td><span class="badge blue">İşlem Bekliyor</span></td></tr>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="07">
+      <div class="grid-2">
+        <div>
+          <div class="eyebrow">Acil Beklenen</div>
+          <h2>Çıkış tarihi yaklaşan ve geciken bileşenler</h2>
+          <p class="lead">Acil beklenen listesi talep tablosundaki <b>Çıkış Tarihi</b> alanına göre çalışır.</p>
+          <div class="steps">
+            <div class="step"><span class="num">1</span><div><b>3 gün kaldıysa</b><p>Satır acil beklenen listesine düşer.</p></div></div>
+            <div class="step"><span class="num">2</span><div><b>Tarih geçtiyse</b><p>Gecikmiş bileşen olarak görünür.</p></div></div>
+            <div class="step"><span class="num">3</span><div><b>Tamamlandıysa çıkmaz</b><p>Teslim edildi, ürün çıktı veya iptal edilen kayıtlar listeye alınmaz.</p></div></div>
+          </div>
+        </div>
+        <div class="screen">
+          <div class="screenbar"><span class="dot red"></span><span class="dot amber"></span><span class="dot green"></span><div class="url">Acil beklenen</div></div>
+          <div class="screenbody">
+            <div class="tabs"><span>Tümü</span><span class="active">Acil beklenen</span><span>vCAP</span><span>Liyofilize</span></div>
+            <table>
+              <tr><th>Çıkış Tarihi</th><th>Sipariş No</th><th>Madde No</th><th>Durum</th></tr>
+              <tr><td style="color:var(--red);font-weight:800">19.04.2026<br><small>Bugün</small></td><td>ST0007401</td><td>YM-P-02378</td><td><span class="badge amber">QC Bekliyor</span></td></tr>
+              <tr><td style="color:var(--amber);font-weight:800">22.04.2026<br><small>3 gün kaldı</small></td><td>ST0007403</td><td>YM-P-01101</td><td><span class="badge blue">İşlem Bekliyor</span></td></tr>
+              <tr><td style="color:var(--red);font-weight:800">17.04.2026<br><small>2 gün gecikti</small></td><td>ST0007398</td><td>YM-P-01022</td><td><span class="badge red">QC Tekrar</span></td></tr>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="08">
+      <div class="eyebrow">Satış ve Lojistik Görünümü</div>
+      <h2>Kısıtlı görünüm: sadece gerekli bilgi</h2>
+      <div class="grid-2" style="margin-top: 26px;">
+        <div class="screen">
+          <div class="screenbar"><span class="dot red"></span><span class="dot amber"></span><span class="dot green"></span><div class="url">Satış / Lojistik hesabı</div></div>
+          <div class="screenbody">
+            <div class="toolbar"><div class="searchbox">Ara...</div><div><span class="btn">Excel</span><span class="btn">CSV</span></div></div>
+            <table>
+              <tr><th>Talep Geç</th><th>Belge No</th><th>Ürün No</th><th>Teslim Tarihi</th><th>Durum</th></tr>
+              <tr><td><span class="btn">Değişiklikler</span></td><td>ST0001096</td><td>BS-GE-MX6L-25</td><td>19.04.2026</td><td><span class="badge amber">Lojistikte</span></td></tr>
+              <tr><td><span class="btn">Değişiklikler</span></td><td>ST0001101</td><td>BS-HPV-S-25</td><td>23.04.2026</td><td><span class="badge green">Hazır</span></td></tr>
+            </table>
+          </div>
+        </div>
+        <div>
+          <div class="card">
+            <h3>Satış ve lojistik ne görmez?</h3>
+            <p style="margin-top: 10px;">Bu ekiplerde belge numarası bağlı talep detayına açılmaz. Talebin geçilip geçilmediği bilgisi belge no üzerinden gösterilmez.</p>
+            <div style="margin-top: 18px;">
+              <span class="pill red">Talep Geç yok</span>
+              <span class="pill red">Toplu Talep Geç yok</span>
+              <span class="pill red">Silme yok</span>
+              <span class="pill red">Sıfırlama yok</span>
+            </div>
+          </div>
+          <div class="note">Bu ayrım, üretim talebi bilgisinin sadece yetkili ekiplerde görünmesini sağlar.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="09">
+      <div class="topline">
+        <div>
+          <div class="eyebrow">Admin Paneli</div>
+          <h2>Yönetim ve güvenli işlemler</h2>
+        </div>
+        <span class="pill red">Admin only</span>
+      </div>
+      <div class="grid-2">
+        <div class="screen">
+          <div class="screenbar"><span class="dot red"></span><span class="dot amber"></span><span class="dot green"></span><div class="url">Admin paneli</div></div>
+          <div class="screenbody">
+            <table>
+              <tr><th>İsim Soyisim</th><th>Paraf</th><th>Rol</th><th>Departman</th><th>Durum</th><th>İşlem</th></tr>
+              <tr><td>Üretim Kullanıcısı</td><td>URT</td><td>Kullanıcı</td><td>Üretim</td><td><span class="badge green">Onaylı</span></td><td><span class="btn red">Sil</span></td></tr>
+              <tr><td>Satış Kullanıcısı</td><td>STS</td><td>Kullanıcı</td><td>Satış</td><td><span class="badge amber">Onay bekliyor</span></td><td><span class="btn primary">Onayla</span></td></tr>
+            </table>
+          </div>
+        </div>
+        <div class="steps">
+          <div class="step"><span class="num">1</span><div><b>Kullanıcı onayı</b><p>Yeni kullanıcılar admin onayından sonra sistemi kullanabilir.</p></div></div>
+          <div class="step"><span class="num">2</span><div><b>Silme ve sıfırlama</b><p>Tüm yıkıcı işlemler sadece admin hesabında görünür ve çalışır.</p></div></div>
+          <div class="step"><span class="num">3</span><div><b>Şifre güvenliği</b><p>Şifreler görüntülenmez. Kullanıcı mevcut şifresini doğrulayarak kendi şifresini değiştirebilir.</p></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" data-slide="10">
+      <div class="eyebrow">Örnek Günlük Akış</div>
+      <h2>Bir siparişin sistemdeki yolculuğu</h2>
+      <div class="flow">
+        <div class="card"><h3>1. Excel gelir</h3><small>Satış siparişleri sisteme yüklenir.</small><span class="pill blue">Satış satırları</span></div>
+        <div class="card"><h3>2. Hafta seçilir</h3><small>İlgili üretim haftası filtrelenir.</small><span class="pill blue">6. hafta</span></div>
+        <div class="card"><h3>3. Talep geçilir</h3><small>Ürün ağacı bileşenleri talebe dönüştürür.</small><span class="pill green">Talep oluştu</span></div>
+        <div class="card"><h3>4. Durum izlenir</h3><small>QC, üretim ve lojistik durumları güncellenir.</small><span class="pill amber">QC bekliyor</span></div>
+        <div class="card"><h3>5. Çıkış yapılır</h3><small>Ürün çıktı veya iptal listesine ayrılır.</small><span class="pill green">Ürün çıktı</span></div>
+      </div>
+      <div class="note">Bu akış sayesinde sipariş, talep, bileşen, durum ve departman aksiyonları tek sistemde izlenebilir.</div>
+    </section>
+
+    <section class="slide" data-slide="11">
+      <div class="grid-2">
+        <div>
+          <div class="eyebrow">Kapanış</div>
+          <h2>Sistemin kazandırdığı şey</h2>
+          <p class="lead">Daha az kayıp bilgi, daha net öncelik, daha kontrollü yetki ve daha izlenebilir üretim süreci.</p>
+          <div style="margin-top: 26px;">
+            <span class="pill green">Tek veri kaynağı</span>
+            <span class="pill blue">Departman bazlı kullanım</span>
+            <span class="pill amber">Acil iş takibi</span>
+            <span class="pill red">Yetkili silme/sıfırlama</span>
+          </div>
+        </div>
+        <div class="card">
+          <h3>Sunumda vurgulanacak ana mesaj</h3>
+          <p style="margin-top: 12px;">Bu sistem satıştan üretime giden talep sürecini standart hale getirir. Hangi departmanın neyi göreceği bellidir, talep geçme ve silme gibi kritik işlemler sadece yetkili kişilerde kalır.</p>
+          <div class="note">Demo önerisi: Satış satırları ekranı açılır, bir satırdan talep geçirilir, sonra talep listesinde acil beklenen filtresi gösterilir.</div>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

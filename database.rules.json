@@ -1,0 +1,47 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "orders": {
+      ".read": "auth != null && root.child('users').child(auth.uid).exists() && root.child('users').child(auth.uid).child('disabled').val() !== true && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('isApproved').val() !== false) && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('department').val() === 'uretim' || root.child('users').child(auth.uid).child('permissions').child('canViewOrders').val() === true)",
+      "$orderId": {
+        ".write": "auth != null && root.child('users').child(auth.uid).exists() && root.child('users').child(auth.uid).child('disabled').val() !== true && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('isApproved').val() !== false) && (root.child('users').child(auth.uid).child('role').val() === 'admin' || ((root.child('users').child(auth.uid).child('department').val() === 'uretim' || root.child('users').child(auth.uid).child('permissions').child('canViewOrders').val() === true) && newData.exists() && newData.child('deleted').val() !== true && data.child('deleted').val() !== true))"
+      }
+    },
+
+    "productTrees": {
+      ".read": "auth != null && root.child('users').child(auth.uid).exists() && root.child('users').child(auth.uid).child('disabled').val() !== true && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('isApproved').val() !== false)",
+      ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'"
+    },
+
+    "salesLines": {
+      ".read": "auth != null && root.child('users').child(auth.uid).exists() && root.child('users').child(auth.uid).child('disabled').val() !== true && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('isApproved').val() !== false)",
+      ".write": "auth != null && root.child('users').child(auth.uid).exists() && root.child('users').child(auth.uid).child('disabled').val() !== true && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('department').val() === 'uretim' || root.child('users').child(auth.uid).child('department').val() === 'satis' || root.child('users').child(auth.uid).child('permissions').child('canManageSalesLineRequests').val() === true)",
+      "state": {
+        ".validate": "!newData.child('payloadJson').exists()"
+      }
+    },
+
+    "auditLogs": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'",
+      ".write": "auth != null && root.child('users').child(auth.uid).exists() && root.child('users').child(auth.uid).child('disabled').val() !== true && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('isApproved').val() !== false)"
+    },
+
+    "parafAliases": {
+      "$paraf": {
+        ".read": true,
+        ".write": "auth != null && ((!data.exists() && newData.child('uid').val() === auth.uid) || data.child('uid').val() === auth.uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        ".validate": "!newData.exists() || (newData.child('uid').isString() && newData.child('authEmail').isString())"
+      }
+    },
+
+    "users": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'",
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('users').child(auth.uid).child('role').val() === 'admin')",
+        ".write": "auth != null && ((auth.uid === $uid && ((!data.exists() && newData.child('role').val() === 'user' && newData.child('isApproved').val() === false && newData.child('disabled').val() === false) || (data.exists() && newData.child('role').val() === data.child('role').val() && newData.child('isApproved').val() === data.child('isApproved').val() && newData.child('disabled').val() === data.child('disabled').val() && newData.child('permissions').val() === data.child('permissions').val()))) || root.child('users').child(auth.uid).child('role').val() === 'admin')"
+      }
+    }
+  }
+}

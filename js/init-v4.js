@@ -1,0 +1,602 @@
+console.log('APP_BUILD v4 aktif');
+/**
+ * Initialization Module - Uygulamayi baslat ve modulleri entegre et
+ */
+
+if (typeof orders === 'undefined') {
+    var orders = [];
+}
+let filteredOrders = [];
+
+function isDerivedSalesLineOrder(order) {
+    return !!(order && order.sourceSystem === 'sales-lines');
+}
+
+function getPersistableOrders() {
+    return Array.isArray(orders)
+        ? orders.filter(order => !isDerivedSalesLineOrder(order))
+        : [];
+}
+
+async function cleanupDerivedOrdersPersistence() {
+    const persistableOrders = getPersistableOrders();
+
+    await storage.saveAll(persistableOrders);
+
+    if (typeof firebaseReady !== 'undefined' && firebaseReady && firebaseSync && firebaseSync.ordersRef) {
+        if (navigator.onLine) {
+            await firebaseSync.syncOrderDiff(Array.isArray(orders) ? orders : persistableOrders, { reason: 'cleanup_sales_lines_derived' });
+        } else if (typeof offlineManager !== 'undefined') {
+            offlineManager.markPendingSync();
+        }
+    }
+}
+
+function remoteProductTreesHaveComponentUnits(products = []) {
+    return Array.isArray(products) && products.some(product =>
+        Array.isArray(product?.components) && product.components.some(component => String(component?.unit || '').trim())
+    );
+}
+
+async function reconcileSalesLinesDerivedOrders() {
+    return;
+}
+
+let liveSyncPollTimer = null;
+let liveSyncInFlight = false;
+let lastPolledSalesLinesSignature = '';
+let lastPolledOrdersSignature = '';
+let lastOrdersPollAt = 0;
+let lastSalesPollAt = 0;
+const SALES_LINES_STATE_URL = 'https://reaksiyontalep-default-rtdb.europe-west1.firebasedatabase.app/salesLines/state.json';
+const ORDERS_FALLBACK_VISIBLE_MS = 60000;
+const ORDERS_FALLBACK_HIDDEN_MS = 300000;
+const SALES_LINES_FALLBACK_VISIBLE_MS = 60000;
+const SALES_LINES_FALLBACK_HIDDEN_MS = 300000;
+const ORDERS_REALTIME_FRESH_MS = 45000;
+const SALES_LINES_REALTIME_FRESH_MS = 45000;
+
+function hasOrdersAccess() {
+    return typeof canViewOrders !== 'function' || canViewOrders();
+}
+
+function buildOrdersSignature(orderList = []) {
+    try {
+        const normalized = (orderList || [])
+            .map(order => ({
+                id: String(order?.id || ''),
+                status: String(order?.status || ''),
+                quantity: order?.quantity ?? '',
+                producedQty: order?.producedQty ?? '',
+                format: String(order?.format || ''),
+                orderNo: String(order?.orderNo || ''),
+                requesterNote: String(order?.requesterNote || ''),
+                team1Note: String(order?.team1Note || ''),
+                team2Note: String(order?.team2Note || ''),
+                deliveryDate: String(order?.deliveryDate || ''),
+                lastModifiedBy: String(order?.lastModifiedBy || ''),
+                createdAt: String(order?.createdAt || '')
+            }))
+            .sort((a, b) => a.id.localeCompare(b.id, 'tr'));
+        return JSON.stringify(normalized);
+    } catch (_) {
+        return '';
+    }
+}
+
+async function pollCloudStateFallback() {
+    if (liveSyncInFlight) return;
+    if (typeof firebaseReady === 'undefined' || !firebaseReady) return;
+    if (typeof firebaseSync === 'undefined' || !firebaseSync) return;
+
+    const now = Date.now();
+    const hasFreshOrdersRealtime = !!(firebaseSync.lastOrdersEventAt && (now - firebaseSync.lastOrdersEventAt < ORDERS_REALTIME_FRESH_MS));
+    const hasFreshSalesRealtime = !!(firebaseSync.lastSalesLinesEventAt && (now - firebaseSync.lastSalesLinesEventAt < SALES_LINES_REALTIME_FRESH_MS));
+    const ordersFallbackInterval = document.hidden ? ORDERS_FALLBACK_HIDDEN_MS : ORDERS_FALLBACK_VISIBLE_MS;
+    const salesFallbackInterval = document.hidden ? SALES_LINES_FALLBACK_HIDDEN_MS : SALES_LINES_FALLBACK_VISIBLE_MS;
+
+    liveSyncInFlight = true;
+    try {
+        if (hasOrdersAccess() && !hasFreshOrdersRealtime && (now - lastOrdersPollAt >= ordersFallbackInterval) && firebaseSync.ordersRef && typeof firebaseSync.getAll === 'function' && typeof firebaseSync.applyRemoteOrders === 'function') {
+            lastOrdersPollAt = now;
+            const remoteOrders = await firebaseSync.getAll();
+            if (Array.isArray(remoteOrders)) {
+                const signature = buildOrdersSignature(remoteOrders);
+                if (signature && signature !== lastPolledOrdersSignature) {
+                    const snapshotValue = remoteOrders.reduce((acc, order) => {
+                        if (order?.id) acc[String(order.id)] = order;
+                        return acc;
+                    }, {});
+                    await firebaseSync.applyRemoteOrders(snapshotValue);
+                    lastPolledOrdersSignature = signature;
+                }
+            }
+        }
+
+        if (!hasFreshSalesRealtime && (now - lastSalesPollAt >= salesFallbackInterval) && firebaseSync.salesLinesRef && typeof firebaseSync.getSalesLinesPayload === 'function') {
+            lastSalesPollAt = now;
+            let payload = await firebaseSync.getSalesLinesPayload();
+            if (!payload) {
+                try {
+                    const response = await fetch(SALES_LINES_STATE_URL, { method: 'GET' });
+                    if (response.ok) {
+                        const rawState = await response.json();
+                        if (rawState && typeof rawState.payloadJson === 'string') {
+                            payload = JSON.parse(rawState.payloadJson);
+                        } else if (rawState && Array.isArray(rawState.allOrders)) {
+                            payload = rawState;
+                        }
+                    }
+                } catch (error) {
+                    console.warn('Sales lines REST fallback okuma hatası:', error);
+                }
+            }
+
+            if (payload) {
+                const payloadSignature = typeof getSalesLinesPayloadSignature === 'function'
+                    ? getSalesLinesPayloadSignature(payload)
+                    : JSON.stringify({ savedAt: payload.savedAt || '', count: Array.isArray(payload.allOrders) ? payload.allOrders.length : 0 });
+
+                if (payloadSignature && payloadSignature !== lastPolledSalesLinesSignature) {
+                    if (typeof window.applyRemoteSalesLinesPayload === 'function') {
+                        await window.applyRemoteSalesLinesPayload(payload, { silent: true });
+                    }
+                    lastPolledSalesLinesSignature = payloadSignature;
+                }
+            }
+        }
+    } catch (error) {
+        console.warn('Canlı senkron fallback poll hatası:', error);
+    } finally {
+        liveSyncInFlight = false;
+    }
+}
+
+function startLiveSyncFallbackPolling() {
+    if (typeof isTestLocalSession === 'function' && isTestLocalSession()) return;
+    if (liveSyncPollTimer) return;
+    liveSyncPollTimer = setInterval(() => {
+        pollCloudStateFallback();
+    }, 5000);
+}
+
+async function initializeApp() {
+    console.log('Uygulama baslatiliyor...');
+
+    try {
+        await storage.init();
+        console.log('Storage baslatildi');
+
+        if (typeof isTestLocalSession === 'function' && isTestLocalSession()) {
+            orders = await storage.getAll();
+            console.log(`${orders.length} siparis yuklendi (test modu)`);
+        } else if (typeof firebaseReady !== 'undefined' && firebaseReady && typeof firebaseSync !== 'undefined') {
+            if (!firebaseSync.ordersRef) {
+                firebaseSync.init();
+            }
+
+            if (hasOrdersAccess() && typeof dataMigration !== 'undefined') {
+                const localOrders = await storage.getAll();
+                if (localOrders && localOrders.length > 0) {
+                    orders = localOrders;
+                }
+                await dataMigration.migrateToFirebase();
+            }
+
+            if (hasOrdersAccess() && !firebaseSync.isListening) {
+                firebaseSync.startListening();
+            }
+
+            if (typeof productTreeExcel !== 'undefined') {
+                await firebaseSync.migrateProductTrees(productTreeExcel.getManagedProducts());
+
+                if (!firebaseSync.isProductTreeListening) {
+                    firebaseSync.startProductTreeListening((remoteProducts) => {
+                        const hasLocalUnits = Array.isArray(productTreeExcel?.productTreeData)
+                            && productTreeExcel.productTreeData.some(component => String(component?.unit || '').trim());
+                        const hasRemoteUnits = remoteProductTreesHaveComponentUnits(remoteProducts);
+
+                        if (hasLocalUnits && !hasRemoteUnits) {
+                            console.warn('Eksik cloud ürün ağacı verisi atlandı, yerel Excel ölçü birimleri korunuyor.');
+                            return;
+                        }
+
+                        productTreeExcel.replaceAllManagedProducts(remoteProducts, {
+                            skipCloud: true,
+                            reason: 'firebase_product_tree_listener'
+                        });
+
+                        if (typeof renderManagedProductsList === 'function') {
+                            renderManagedProductsList();
+                        }
+
+                        if (typeof updateProductTreeStats === 'function') {
+                            updateProductTreeStats();
+                        }
+
+                        if (typeof syncOrderFormatsFromProductTree === 'function') {
+                            syncOrderFormatsFromProductTree({ persist: true, skipRender: false })
+                                .catch(error => console.warn('Ürün ağacı format senkron hatası:', error));
+                        }
+                    });
+                }
+            }
+
+            if (!firebaseSync.isSalesLinesListening) {
+                const applySalesLinesPayload = async (payload) => {
+                    if (typeof window.applyRemoteSalesLinesPayload === 'function') {
+                        await window.applyRemoteSalesLinesPayload(payload, { silent: true, skipPersist: true });
+                    }
+                };
+
+                const initialSalesLinesPayload = await firebaseSync.getSalesLinesPayload();
+                if (initialSalesLinesPayload) {
+                    await applySalesLinesPayload(initialSalesLinesPayload);
+                }
+
+                firebaseSync.startSalesLinesListening((payload) => {
+                    applySalesLinesPayload(payload).catch(error =>
+                        console.warn('Sales lines canlı uygulama hatası:', error)
+                    );
+                });
+            }
+
+            if (typeof offlineManager !== 'undefined') {
+                offlineManager.init();
+            }
+
+            startLiveSyncFallbackPolling();
+
+            console.log(`${orders.length} siparis yuklendi (Firebase merkezli)`);
+        } else {
+            orders = await storage.getAll();
+            console.log(`${orders.length} siparis yuklendi (IndexedDB)`);
+        }
+
+        pagination = new PaginationManager({
+            itemsPerPage: 50,
+            onPageChange: () => {
+                renderCurrentView();
+            }
+        });
+
+        backupManager = new BackupManager(storage);
+        window.backupManager = backupManager;
+
+        advancedFilters.onFilterChange = () => {
+            applyFiltersWithPagination();
+        };
+
+        renderBackupUI();
+        renderBulkActionsUI();
+        await backupManager.checkAutoBackup();
+        overrideRenderOrders();
+
+        renderDashboard();
+        renderWeekSidebar();
+        applyFilters();
+
+        if (typeof syncOrderFormatsFromProductTree === 'function') {
+            await syncOrderFormatsFromProductTree({ persist: true, skipRender: true });
+        }
+
+        setTimeout(() => {
+            reconcileSalesLinesDerivedOrders();
+        }, 300);
+
+        console.log('Uygulama basariyla baslatildi');
+    } catch (error) {
+        console.error('Uygulama baslatma hatasi:', error);
+        showToast('Uygulama baslatilirken hata olustu: ' + error.message, 'error');
+    }
+}
+
+function overrideRenderOrders() {
+    const originalRenderOrders = window.renderOrders;
+
+    window.renderOrders = function (filteredOrdersParam = null) {
+        const ordersToRender = filteredOrdersParam || filteredOrders || orders;
+        pagination.setTotalItems(ordersToRender.length);
+        const pageData = pagination.getCurrentPageData(ordersToRender);
+        originalRenderOrders(pageData);
+        pagination.renderPagination('paginationContainer');
+        addCheckboxListeners();
+    };
+}
+
+function applyFiltersWithPagination() {
+    let baseOrders = orders;
+
+    if (typeof activeTabFilter !== 'undefined') {
+        if (activeTabFilter === 'vcap') {
+            baseOrders = orders.filter(o => o.format === 'vCAP' && o.requesterNote !== 'Karşılığı olmayan ürün');
+        } else if (activeTabFilter === 'liyofilize') {
+            baseOrders = orders.filter(o => o.format === 'Liyofilize' && o.requesterNote !== 'Karşılığı olmayan ürün');
+        } else if (activeTabFilter === 'tube') {
+            baseOrders = orders.filter(o => o.format === 'Tüp' && o.requesterNote !== 'Karşılığı olmayan ürün');
+        } else if (activeTabFilter === 'unmatched') {
+            baseOrders = orders.filter(o => o.requesterNote === 'Karşılığı olmayan ürün');
+        }
+    }
+
+    filteredOrders = advancedFilters.filterData(baseOrders);
+    renderOrders(filteredOrders);
+}
+
+function renderCurrentView() {
+    const activeTab = document.querySelector('.nav-tab.active');
+    if (!activeTab) return;
+
+    const tabId = activeTab.getAttribute('data-tab');
+
+    if (tabId === 'vcap' || tabId === 'liyofilize' || tabId === 'tube' || tabId === 'orders') {
+        applyFiltersWithPagination();
+    } else if (tabId === 'dashboard') {
+        renderDashboard();
+    } else if (tabId === 'qc-view') {
+        renderQcView();
+    } else if (tabId === 'destroyed-view') {
+        renderDestroyedView();
+    }
+}
+
+// Use the shared format normalization helpers from index.html so tab filters
+// stay aligned with product-tree based format inference.
+function applyFiltersWithPagination() {
+    let baseOrders = orders;
+
+    if (typeof activeTabFilter !== 'undefined') {
+        const getBucket = (order) => {
+            if (typeof getFormatBucket === 'function') return getFormatBucket(order);
+
+            const formatValue = String(order?.format || '').trim().toLocaleLowerCase('tr');
+            if (formatValue === 'vcap') return 'vcap';
+            if (formatValue.includes('liyo')) return 'liyofilize';
+            if (formatValue.includes('tüp') || formatValue.includes('tup') || formatValue.includes('tube')) return 'tube';
+            return '';
+        };
+
+        const isUnmatched = (order) => {
+            if (typeof isUnmatchedOrder === 'function') return isUnmatchedOrder(order);
+
+            const note = String(order?.requesterNote || '').toLocaleLowerCase('tr');
+            return note.includes('karşılığı olmayan') || note.includes('karsiligi olmayan');
+        };
+
+        if (activeTabFilter === 'vcap') {
+            baseOrders = orders.filter(order => getBucket(order) === 'vcap' && !isUnmatched(order));
+        } else if (activeTabFilter === 'liyofilize') {
+            baseOrders = orders.filter(order => getBucket(order) === 'liyofilize' && !isUnmatched(order));
+        } else if (activeTabFilter === 'tube') {
+            baseOrders = orders.filter(order => getBucket(order) === 'tube' && !isUnmatched(order));
+        } else if (activeTabFilter === 'unmatched') {
+            baseOrders = orders.filter(order => isUnmatched(order));
+        }
+    }
+
+    filteredOrders = advancedFilters.filterData(baseOrders);
+    renderOrders(filteredOrders);
+}
+
+function renderBackupUI() {
+    backupManager.renderBackupUI('backupContainer');
+}
+
+function renderBulkActionsUI() {
+    advancedFilters.renderBulkActionsPanel('bulkActionsPanelContainer');
+}
+
+function addCheckboxListeners() {
+    document.querySelectorAll('.row-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', (e) => {
+            const orderId = e.target.dataset.orderId;
+            advancedFilters.toggleRowSelection(orderId);
+        });
+    });
+
+    const selectAllCheckbox = document.querySelector('.select-all-checkbox');
+    if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener('change', () => {
+            const pageData = pagination.getCurrentPageData(filteredOrders || orders);
+            const orderIds = pageData.map(order => order.id);
+            advancedFilters.toggleAllRows(orderIds);
+        });
+    }
+}
+
+const originalSaveOrders = window.saveOrders;
+window.saveOrders = async function () {
+    const persistableOrders = getPersistableOrders();
+    await storage.saveAll(persistableOrders);
+
+    if (typeof isTestLocalSession === 'function' && isTestLocalSession()) {
+        if (pagination) pagination.setTotalItems(orders.length);
+        return;
+    }
+
+    if (typeof firebaseReady !== 'undefined' && firebaseReady && firebaseSync && firebaseSync.ordersRef) {
+        if (navigator.onLine) {
+            try {
+                if (typeof setSyncStatus === 'function') setSyncStatus('syncing');
+                await firebaseSync.syncOrderDiff(Array.isArray(orders) ? orders : persistableOrders, { reason: 'save_orders' });
+            } catch (error) {
+                if (typeof offlineManager !== 'undefined') {
+                    const cache = firebaseSync.orderCache || new Map();
+                    persistableOrders.forEach(order => {
+                        const cachedOrder = cache.get(String(order.id));
+                        if (!cachedOrder || firebaseSync.getComparableString(cachedOrder) !== firebaseSync.getComparableString(order)) {
+                            offlineManager.queueOrderUpsert(order);
+                        }
+                    });
+                }
+                if (typeof setSyncStatus === 'function') setSyncStatus('pending', 'Merkezi kayıt başarısız, değişiklik yerelde bekliyor.');
+                throw error;
+            }
+        } else if (typeof offlineManager !== 'undefined') {
+            const cache = firebaseSync.orderCache || new Map();
+            persistableOrders.forEach(order => {
+                const cachedOrder = cache.get(String(order.id));
+                if (!cachedOrder || firebaseSync.getComparableString(cachedOrder) !== firebaseSync.getComparableString(order)) {
+                    offlineManager.queueOrderUpsert(order);
+                }
+            });
+        }
+    }
+
+    if (pagination) pagination.setTotalItems(orders.length);
+};
+
+window.addOrderToList = async function (order) {
+    const now = new Date().toISOString();
+    order.createdAt = order.createdAt || now;
+    order.updatedAt = now;
+    order.updatedBy = getActiveUserParaf(order.updatedBy || '');
+    orders.push(order);
+    if (!isDerivedSalesLineOrder(order)) {
+        await storage.save(order);
+    }
+    await window.saveOrders();
+};
+
+window.updateOrder = async function (orderId, updates) {
+    const order = orders.find(o => o.id === orderId);
+    if (order) {
+        Object.assign(order, updates);
+        order.updatedAt = new Date().toISOString();
+        order.updatedBy = getActiveUserParaf(order.updatedBy || '');
+        if (!isDerivedSalesLineOrder(order)) {
+            await storage.save(order);
+        }
+        await window.saveOrders();
+    }
+};
+
+window.deleteOrder = async function (orderId) {
+    const index = orders.findIndex(o => o.id === orderId);
+    if (index >= 0) {
+        const [removedOrder] = orders.splice(index, 1);
+        if (!isDerivedSalesLineOrder(removedOrder)) {
+            await storage.delete(orderId);
+        }
+
+        if (typeof firebaseReady !== 'undefined' && firebaseReady && firebaseSync && firebaseSync.ordersRef && navigator.onLine) {
+            await firebaseSync.removeOrder(orderId, { reason: 'delete_order' });
+        } else {
+            if (typeof offlineManager !== 'undefined') {
+                offlineManager.queueOrderDelete(orderId);
+            } else {
+                await window.saveOrders();
+            }
+        }
+
+        if (pagination) pagination.setTotalItems(orders.length);
+    }
+};
+
+const originalExportToExcel = window.exportToExcel;
+window.exportToExcel = async function () {
+    if (typeof originalExportToExcel === 'function') {
+        originalExportToExcel();
+        return;
+    }
+
+    if (backupManager && typeof backupManager.downloadExcel === 'function') {
+        await backupManager.downloadExcel();
+        return;
+    }
+
+    showToast('Excel aktarımı hazır değil. Sayfayı yenileyip tekrar deneyin.', 'warning');
+};
+
+const originalSwitchTab = window.switchTab;
+window.switchTab = function (tabId) {
+    if (pagination) {
+        pagination.currentPage = 1;
+    }
+
+    if (advancedFilters) {
+        advancedFilters.clearSelection();
+    }
+
+    if (originalSwitchTab) {
+        originalSwitchTab(tabId);
+    }
+
+    setTimeout(() => renderCurrentView(), 100);
+};
+
+const originalApplyFilters = window.applyFilters;
+window.applyFilters = function () {
+    const searchInput = document.getElementById('globalSearch');
+    if (searchInput) {
+        advancedFilters.setFilter('search', searchInput.value);
+    }
+
+    if (originalApplyFilters) {
+        originalApplyFilters();
+    } else {
+        applyFiltersWithPagination();
+    }
+};
+
+document.addEventListener('DOMContentLoaded', async function () {
+    setTimeout(async () => {
+        await initializeApp();
+    }, 100);
+});
+
+setInterval(async () => {
+    if (backupManager) {
+        await backupManager.checkAutoBackup();
+    }
+}, 60 * 60 * 1000);
+
+console.log('%cReaksiyon Strip Takip Sistemi', 'color: #4f46e5; font-size: 16px; font-weight: bold;');
+console.log('%cMerkezi veri ve offline cache aktif', 'color: #10b981; font-size: 14px; font-weight: bold;');
+
+window.deleteAllOrders = async function () {
+    const confirmed = confirm('Dikkat: Tum talepler kalici olarak silinecek. Bu islem geri alinamaz. Emin misiniz?');
+    if (!confirmed) return;
+
+    const doubleConfirmed = confirm('Gercekten tum talepleri sifirlamak istiyor musunuz?');
+    if (!doubleConfirmed) return;
+
+    try {
+        if (typeof showLoading === 'function') showLoading('Talepler siliniyor...');
+
+        if (typeof window.finalizeDeleteAllOrders === 'function') {
+            await Promise.resolve(window.finalizeDeleteAllOrders());
+        } else {
+            if (typeof orders !== 'undefined') {
+                orders.length = 0;
+            }
+
+            if (typeof saveOrders === 'function') {
+                await saveOrders();
+            }
+
+            if (typeof renderDashboard === 'function') renderDashboard();
+            if (typeof renderCurrentView === 'function') {
+                renderCurrentView();
+            }
+            if (typeof renderWeekSidebar === 'function') {
+                renderWeekSidebar();
+            }
+        }
+
+        if (typeof updateProductTreeStats === 'function') {
+            updateProductTreeStats();
+        }
+
+        if (typeof hideLoading === 'function') hideLoading();
+    } catch (error) {
+        if (typeof hideLoading === 'function') hideLoading();
+        console.error('Silme hatasi:', error);
+        if (typeof showToast === 'function') {
+            showToast('Veriler silinirken hata olustu: ' + error.message, 'error');
+        } else {
+            alert('Hata: ' + error.message);
+        }
+    }
+};
+
