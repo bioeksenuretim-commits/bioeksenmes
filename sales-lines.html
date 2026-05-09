@@ -4465,10 +4465,16 @@ async function approveTodayOutputsList() {
         return;
     }
 
-    if (!confirm(`${outputOrders.length} satırın durumu "Ürün Çıktı" olarak güncellenecek. Onaylıyor musunuz?`)) return;
+    const partialCount = outputOrders.filter(order => isPartialOutputStatus(order?.['Ürün Durumu'])).length;
+    const fullOutputCount = outputOrders.length - partialCount;
+    const confirmText = partialCount > 0
+        ? `${fullOutputCount} satır "Ürün Çıktı" olarak güncellenecek, ${partialCount} parçalı çıkış satırı korunacak. Onaylıyor musunuz?`
+        : `${outputOrders.length} satırın durumu "Ürün Çıktı" olarak güncellenecek. Onaylıyor musunuz?`;
+    if (!confirm(confirmText)) return;
 
     let changed = 0;
     outputOrders.forEach(order => {
+        if (isPartialOutputStatus(order?.['Ürün Durumu'])) return;
         if (setSalesLineOrderValue(order, 'Ürün Durumu', 'Ürün Çıktı')) {
             changed += 1;
         }
@@ -4480,7 +4486,7 @@ async function approveTodayOutputsList() {
         renderDashboard();
         openDetail('todayOutputs');
     }
-    showToast(changed > 0 ? `${changed} satır Ürün Çıktı olarak güncellendi` : 'Listedeki satırlar zaten Ürün Çıktı durumunda.', changed > 0 ? 'success' : 'info');
+    showToast(changed > 0 ? `${changed} satır Ürün Çıktı olarak güncellendi` : 'Listedeki satırlar zaten onaylı durumda.', changed > 0 ? 'success' : 'info');
 }
 
 function startNewTodayOutputsList() {
