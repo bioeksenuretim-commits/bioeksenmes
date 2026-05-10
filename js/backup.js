@@ -319,27 +319,26 @@ class BackupManager {
     getRequestExportColumns() {
         return {
             weekNumber: { label: 'Hafta', wch: 8 },
-            requestDate: { label: 'Talep Tarihi', wch: 12, format: value => value ? this.formatExportDate(value) : '' },
-            deliveryDate: { label: 'Çıkış Tarihi', wch: 12, format: value => value ? this.formatExportDate(value) : '' },
-            country: { label: 'Ülke', wch: 10 },
-            orderNo: { label: 'Sipariş No', wch: 15 },
-            requester: { label: 'Talep Eden', wch: 12 },
-            catalogNo: { label: 'Katalog No', wch: 15 },
+            requestDate: { label: 'Tarih', wch: 12, format: value => value ? this.formatExportDate(value) : '' },
             materialNo: { label: 'Madde No', wch: 15 },
-            rxnName: { label: 'Rxn Adı', wch: 25 },
+            rxnName: { label: 'Urun Aciklamasi', wch: 25 },
             format: { label: 'Format', wch: 12 },
-            requesterNote: { label: 'Talep Eden Not', wch: 25 },
-            quantity: { label: 'Talep Miktar', wch: 12 },
-            producedQty: { label: 'Üretilen Miktar', wch: 12 },
-            producer: { label: 'Üreten Kişi', wch: 12 },
+            requesterNote: { label: 'Talep Gecen Not', wch: 25 },
+            quantity: { label: 'Planlanan Miktar (Rack)', wch: 18 },
+            plannedRxnQty: { label: 'Planlanan Miktar (Rxn)', wch: 18 },
+            plannedWellQty: { label: 'Planlanan (well)', wch: 16 },
+            producer: { label: 'Sorumlu Kisi', wch: 14 },
+            plannedStartDate: { label: 'Planlanan Baslangic', wch: 18, format: value => value ? this.formatExportDate(value) : '' },
+            plannedEndDate: { label: 'Planlanan Bitis', wch: 16, format: value => value ? this.formatExportDate(value) : '' },
+            producedQty: { label: 'Gerceklesen Miktar (Rack)', wch: 20 },
+            actualRxnQty: { label: 'Gerceklesen Miktar (Rxn)', wch: 20 },
+            actualWellQty: { label: 'Gerceklesen Miktar (well)', wch: 20 },
+            productionOrderNo: { label: 'SBUE No', wch: 18 },
             lotNo: { label: 'Lot No', wch: 20 },
-            productionOrderNo: { label: 'Üretim Emri No', wch: 18 },
-            producerNote: { label: 'Üretim Yapan Ekibin Notu', wch: 25 },
-            status: { label: 'Durum', wch: 15 },
-            lastModifiedBy: { label: 'Değiştiren', wch: 12 }
+            status: { label: 'QC sonuc', wch: 15 },
+            qcApprover: { label: 'QC Onaylayan', wch: 14 }
         };
     }
-
     groupByWeek(items, getWeek) {
         const groups = new Map();
         (items || []).forEach(item => {
@@ -993,3 +992,4 @@ async function downloadFullBackupExcel() {
 }
 
 window.downloadFullBackupExcel = downloadFullBackupExcel;
+

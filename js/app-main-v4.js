@@ -1084,33 +1084,33 @@
         }
 
         // Column Configuration
-        // Updated: Added Prod Order No, Replaced Team Notes, Single-Line Lot No
         const defaultColumns = [
             { id: 'weekNumber', label: 'Hafta', width: '70px' },
-            { id: 'requestDate', label: 'Talep Tarihi', width: '110px', type: 'date', wrap: true },
-            { id: 'deliveryDate', label: 'Çıkış Tarihi', width: '110px', type: 'date', wrap: true },
-            { id: 'orderNo', label: 'Sipariş No', width: '120px', wrap: true },
-            { id: 'requester', label: 'Talep Eden', width: '90px', wrap: true },
-            { id: 'catalogNo', label: 'Katalog No', width: '120px', wrap: true },
+            { id: 'requestDate', label: 'Tarih', width: '110px', type: 'date', wrap: true },
             { id: 'materialNo', label: 'Madde No', width: '120px', wrap: true },
-            { id: 'rxnName', label: 'Rxn Adı', width: '140px', bold: true, wrap: true },
+            { id: 'rxnName', label: 'Ürün Açıklaması', width: '180px', bold: true, wrap: true },
             { id: 'format', label: 'Format', width: '90px', wrap: true },
-            { id: 'requesterNote', label: 'Talep Eden Not', width: '160px', wrap: true },
-            { id: 'quantity', label: 'Talep Miktar', width: '90px', editable: true, wrap: true },
-            { id: 'producedQty', label: 'Üretilen Miktar', width: '95px', wrap: true },
-            { id: 'producer', label: 'Üreten Kişi', width: '100px', wrap: true },
-            { id: 'lotNo', label: 'Lot No', width: '200px', wrap: false },
-            { id: 'productionOrderNo', label: 'Üretim Emri No', width: '180px', wrap: true },
-            { id: 'producerNote', label: 'Üretim Yapan Ekibin Notu', width: '180px', wrap: true },
-            { id: 'status', label: 'Durum', width: '150px', type: 'status' }
+            { id: 'requesterNote', label: 'Talep Geçen Not', width: '170px', wrap: true },
+            { id: 'quantity', label: 'Planlanan Miktar (Rack)', width: '135px', editable: true, wrap: true },
+            { id: 'plannedRxnQty', label: 'Planlanan Miktar (Rxn)', width: '135px', editable: true, wrap: true },
+            { id: 'plannedWellQty', label: 'Planlanan (well)', width: '120px', editable: true, wrap: true },
+            { id: 'producer', label: 'Sorumlu Kişi', width: '120px', wrap: true },
+            { id: 'plannedStartDate', label: 'Planlanan Başlangıç', width: '135px', type: 'date', wrap: true },
+            { id: 'plannedEndDate', label: 'Planlanan Bitiş', width: '125px', type: 'date', wrap: true },
+            { id: 'producedQty', label: 'Gerçekleşen Miktar (Rack)', width: '150px', editable: true, wrap: true },
+            { id: 'actualRxnQty', label: 'Gerçekleşen Miktar (Rxn)', width: '150px', editable: true, wrap: true },
+            { id: 'actualWellQty', label: 'Gerçekleşen Miktar (well)', width: '150px', editable: true, wrap: true },
+            { id: 'productionOrderNo', label: 'SBUE No', width: '140px', wrap: true },
+            { id: 'lotNo', label: 'Lot No', width: '160px', wrap: false },
+            { id: 'status', label: 'QC sonuc', width: '150px', type: 'status' },
+            { id: 'qcApprover', label: 'QC Onaylayan', width: '120px', wrap: true }
         ];
 
         let currentColumns = JSON.parse(localStorage.getItem('reaksiyon_column_order')) || defaultColumns;
 
-        // FORCE UPDATE COLUMNS, WIDTHS & WRAP SIZES
-        // Check if column order is outdated (check 3rd column is deliveryDate)
-        // Previous 3rd col was requester, now it should be deliveryDate
-        const needsReorder = currentColumns[2] && currentColumns[2].id !== 'deliveryDate';
+        const ORDERS_COLUMN_SCHEMA_VERSION = '20260510-production-plan-columns';
+        const storedOrdersColumnSchemaVersion = localStorage.getItem('reaksiyon_column_schema_version');
+        const needsReorder = storedOrdersColumnSchemaVersion !== ORDERS_COLUMN_SCHEMA_VERSION;
 
         const weekCol = currentColumns.find(c => c.id === 'weekNumber');
         const needsUpdate = weekCol && weekCol.width !== '70px';
@@ -1126,6 +1126,7 @@
             // Update logic: If new column missing OR width outdated OR order changed
             currentColumns = JSON.parse(JSON.stringify(defaultColumns)); // Deep copy reset
             localStorage.setItem('reaksiyon_column_order', JSON.stringify(currentColumns));
+            localStorage.setItem('reaksiyon_column_schema_version', ORDERS_COLUMN_SCHEMA_VERSION);
         } else {
             // Just sync widths/wrap if they exist (safety net)
             currentColumns.forEach(col => {
@@ -1137,6 +1138,7 @@
                 }
             });
             localStorage.setItem('reaksiyon_column_order', JSON.stringify(currentColumns));
+            localStorage.setItem('reaksiyon_column_schema_version', ORDERS_COLUMN_SCHEMA_VERSION);
         }
 
         // Global State
@@ -1724,13 +1726,24 @@
                     : '';
             }
 
-            if (colId === 'quantity' || colId === 'producedQty') {
+            if (isQuantityColumn(colId)) {
                 return order[colId] !== undefined && order[colId] !== null && String(order[colId]).trim() !== ''
                     ? String(order[colId])
                     : '';
             }
 
             return String(order[colId] || '');
+        }
+
+        function isQuantityColumn(colId) {
+            return [
+                'quantity',
+                'plannedRxnQty',
+                'plannedWellQty',
+                'producedQty',
+                'actualRxnQty',
+                'actualWellQty'
+            ].includes(colId);
         }
 
         function compareOrderFilterValues(a, b, colId) {
@@ -1741,7 +1754,7 @@
             if (aValue && !bValue) return -1;
             if (!aValue && !bValue) return 0;
 
-            if (colId === 'weekNumber' || colId === 'quantity' || colId === 'producedQty') {
+            if (colId === 'weekNumber' || isQuantityColumn(colId)) {
                 const aNum = parseFloat(aValue.replace(',', '.'));
                 const bNum = parseFloat(bValue.replace(',', '.'));
                 const aIsNum = !Number.isNaN(aNum);
@@ -1902,7 +1915,7 @@
             if (b === '') return -1;
 
             // Hafta numaraları için sayısal karşılaştırma
-            if (colId === 'weekNumber' || colId === 'quantity' || colId === 'producedQty') {
+            if (colId === 'weekNumber' || isQuantityColumn(colId)) {
                 const numA = parseFloat(a);
                 const numB = parseFloat(b);
                 if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
@@ -3276,7 +3289,7 @@
                 // Simple Input Logic (Date/Number)
                 let inputType = 'text';
                 if (type === 'date') inputType = 'date';
-                if (colId === 'quantity' || colId === 'producedQty' || colId === 'weekNumber') inputType = 'number';
+                if (isQuantityColumn(colId) || colId === 'weekNumber') inputType = 'number';
 
                 let inputHtml = '';
                 if (inputType === 'date') {
@@ -5295,6 +5308,10 @@
                 rxnName: data.rxnName || '',
                 format: normalizeOrderFormat(data.format),
                 quantity: data.quantity,
+                plannedRxnQty: data.plannedRxnQty ?? null,
+                plannedWellQty: data.plannedWellQty ?? null,
+                plannedStartDate: data.plannedStartDate || '',
+                plannedEndDate: data.plannedEndDate || '',
                 orderNo: data.orderNo || '',
                 country: data.country || '',
                 deliveryDate: data.deliveryDate || addDaysToDateOnly(data.requestDate || new Date().toISOString().split('T')[0], 21) || '',
@@ -5305,6 +5322,8 @@
                 team2Note: data.team2Note || '',
                 producer: '',
                 producedQty: data.producedQty ?? null,
+                actualRxnQty: data.actualRxnQty ?? null,
+                actualWellQty: data.actualWellQty ?? null,
                 productionOrderNo: data.productionOrderNo || '',
                 qcApprover: '',
                 createdAt: new Date().toISOString(),
@@ -5330,6 +5349,10 @@
                 rxnName: '',
                 format: '',
                 quantity: 0,
+                plannedRxnQty: null,
+                plannedWellQty: null,
+                plannedStartDate: '',
+                plannedEndDate: '',
                 orderNo: '',
                 country: '',
                 deliveryDate: '',
@@ -5340,6 +5363,8 @@
                 team2Note: '',
                 producer: '',
                 producedQty: null,
+                actualRxnQty: null,
+                actualWellQty: null,
                 productionOrderNo: '',
                 qcApprover: '',
                 createdAt: new Date().toISOString(),
@@ -5430,18 +5455,18 @@
             // Değişiklikleri karşılaştır ve kaydet
             const detailFields = [
                 { key: 'weekNumber', label: 'Hafta', el: 'detailWeekNumber' },
-                { key: 'requestDate', label: 'Talep Tarihi', el: 'detailRequestDate' },
+                { key: 'requestDate', label: 'Tarih', el: 'detailRequestDate' },
                 { key: 'requester', label: 'Talep Eden', el: 'detailRequester' },
                 { key: 'orderNo', label: 'Sipariş No', el: 'detailOrderNo' },
                 { key: 'catalogNo', label: 'Katalog No', el: 'detailCatalogNo' },
                 { key: 'materialNo', label: 'Madde No', el: 'detailMaterialNo' },
-                { key: 'rxnName', label: 'Rxn Adı', el: 'detailRxnName' },
+                { key: 'rxnName', label: 'Ürün Açıklaması', el: 'detailRxnName' },
                 { key: 'format', label: 'Format', el: 'detailFormat' },
                 { key: 'deliveryDate', label: 'Teslim Tarihi', el: 'detailDeliveryDate' },
                 { key: 'lotNo', label: 'Lot No', el: 'detailLotNo' },
-                { key: 'requesterNote', label: 'Talep Eden Not', el: 'detailRequesterNote' },
-                { key: 'productionOrderNo', label: 'Üretim Emri No', el: 'detailProductionOrderNo' },
-                { key: 'producer', label: 'Üreten Kişi', el: 'detailProducer' },
+                { key: 'requesterNote', label: 'Talep Geçen Not', el: 'detailRequesterNote' },
+                { key: 'productionOrderNo', label: 'SBUE No', el: 'detailProductionOrderNo' },
+                { key: 'producer', label: 'Sorumlu Kişi', el: 'detailProducer' },
                 { key: 'qcApprover', label: 'QC Onaylayan', el: 'detailQcApprover' },
                 { key: 'status', label: 'Durum', el: 'detailStatus' }
             ];
@@ -5999,22 +6024,28 @@
             // S?tun s?ras?n? kullan?c?n?n d?zenledi?i currentColumns'a g?re belirle
             const colFieldMap = {
                 'weekNumber': { label: 'Hafta', wch: 6, format: v => v },
-                'requestDate': { label: 'Talep Tarihi', wch: 12, format: v => v ? formatDate(v) : '-' },
-                'deliveryDate': { label: 'Kullan?c?kKullan?c? Tarihi', wch: 12, format: v => v ? formatDate(v) : '-' },
+                'requestDate': { label: 'Tarih', wch: 12, format: v => v ? formatDate(v) : '-' },
                 'orderNo': { label: 'Sipari? No', wch: 15, format: v => v || '' },
                 'requester': { label: 'Talep Eden', wch: 10, format: v => v || '' },
                 'catalogNo': { label: 'Katalog No', wch: 12, format: v => v || '' },
                 'materialNo': { label: 'Madde No', wch: 12, format: v => v || '' },
-                'rxnName': { label: 'Rxn Ad?', wch: 25, format: v => v || '' },
+                'rxnName': { label: 'Ürün Açıklaması', wch: 25, format: v => v || '' },
                 'format': { label: 'Format', wch: 10, format: v => v || '' },
-                'requesterNote': { label: 'Talep Eden Not', wch: 20, format: v => v || '' },
-                'quantity': { label: 'Talep Miktar', wch: 10, format: v => v },
-                'producedQty': { label: '?retilen Miktar', wch: 12, format: v => v || '' },
-                'producer': { label: '?reten Ki?i', wch: 12, format: v => v || '' },
+                'requesterNote': { label: 'Talep Geçen Not', wch: 20, format: v => v || '' },
+                'quantity': { label: 'Planlanan Miktar (Rack)', wch: 18, format: v => v },
+                'plannedRxnQty': { label: 'Planlanan Miktar (Rxn)', wch: 18, format: v => v || '' },
+                'plannedWellQty': { label: 'Planlanan (well)', wch: 16, format: v => v || '' },
+                'producer': { label: 'Sorumlu Kişi', wch: 14, format: v => v || '' },
+                'plannedStartDate': { label: 'Planlanan Başlangıç', wch: 18, format: v => v ? formatDate(v) : '-' },
+                'plannedEndDate': { label: 'Planlanan Bitiş', wch: 16, format: v => v ? formatDate(v) : '-' },
+                'producedQty': { label: 'Gerçekleşen Miktar (Rack)', wch: 20, format: v => v || '' },
+                'actualRxnQty': { label: 'Gerçekleşen Miktar (Rxn)', wch: 20, format: v => v || '' },
+                'actualWellQty': { label: 'Gerçekleşen Miktar (well)', wch: 20, format: v => v || '' },
                 'lotNo': { label: 'Lot No', wch: 20, format: v => v || '' },
-                'productionOrderNo': { label: '?retim Emri No', wch: 18, format: v => v || '' },
+                'productionOrderNo': { label: 'SBUE No', wch: 18, format: v => v || '' },
                 'producerNote': { label: '?retim Yapan Ekibin Notu', wch: 25, format: v => v || '' },
-                'status': { label: 'Durum', wch: 15, format: v => v || '' },
+                'status': { label: 'QC sonuc', wch: 15, format: v => v || '' },
+                'qcApprover': { label: 'QC Onaylayan', wch: 14, format: v => v || '' },
                 'lastModifiedBy': { label: 'De?i?tiren', wch: 10, format: v => v || '' }
             };
 
