@@ -773,6 +773,16 @@
                 ordersResetBtn.style.display = canDeleteData() ? 'inline-flex' : 'none';
             }
 
+            const ordersFileUploadBtn = document.getElementById('ordersFileUploadBtn');
+            if (ordersFileUploadBtn) {
+                ordersFileUploadBtn.style.display = isAdmin() ? 'inline-flex' : 'none';
+            }
+
+            const ordersBulkSalesLineRequestBtn = document.getElementById('ordersBulkSalesLineRequestBtn');
+            if (ordersBulkSalesLineRequestBtn) {
+                ordersBulkSalesLineRequestBtn.style.display = isAdmin() ? 'inline-flex' : 'none';
+            }
+
             const clearProductTreeBtn = document.getElementById('clearPTBtn');
             if (clearProductTreeBtn) {
                 clearProductTreeBtn.style.display = isAdmin() ? '' : 'none';
@@ -2975,6 +2985,26 @@
             };
         }
         window.resetRequestsFromSalesLine = resetRequestsFromSalesLine;
+
+        function openBulkSalesLineRequestsFromOrders() {
+            if (!isAdmin()) {
+                showToast('Bu işlem sadece admin hesabı tarafından kullanılabilir.', 'warning');
+                return;
+            }
+
+            const frame = document.getElementById('salesLinesFrame');
+            const bulkFn = frame?.contentWindow?.bulkPassSalesLineRequestsByWeek;
+            if (typeof bulkFn === 'function') {
+                bulkFn();
+                return;
+            }
+
+            if (typeof switchTab === 'function') {
+                switchTab('sales-lines');
+            }
+            showToast('Satış satırları ekranı hazırlanıyor. Yüklendikten sonra Toplu Talep Geç butonuna tekrar basın.', 'info');
+        }
+        window.openBulkSalesLineRequestsFromOrders = openBulkSalesLineRequestsFromOrders;
 
         let syncPayloadToOrdersPromise = null;
 

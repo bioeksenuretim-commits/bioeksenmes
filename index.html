@@ -585,6 +585,14 @@
                 </div>
                 <div class="orders-toolbar-right">
                     <span class="orders-result-count" id="ordersResultCount"></span>
+                    <input type="file" id="ordersExcelUploadInput" accept=".xlsx, .xls" style="display: none;"
+                        onchange="handleExcelUpload(this)">
+                    <button class="orders-toolbar-btn" id="ordersFileUploadBtn" onclick="document.getElementById('ordersExcelUploadInput').click()" style="display:none;">
+                        Dosya Yükle
+                    </button>
+                    <button class="orders-toolbar-btn" id="ordersBulkSalesLineRequestBtn" onclick="openBulkSalesLineRequestsFromOrders()" style="display:none;">
+                        Toplu Talep Geç
+                    </button>
                     <button class="orders-toolbar-btn" onclick="exportToExcel()">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                         Excel
@@ -1148,6 +1156,6 @@
     <div class="toast-container" id="toastContainer"></div>
 
     <script defer src="/js/orders-renderer-v1.js?v=20260508-performance-split"></script>
-    <script defer src="/js/app-main-v4.js?v=20260510-status-title"></script>
+    <script defer src="/js/app-main-v4.js?v=20260510-admin-order-toolbar"></script>
 </body>
 </html>
