@@ -1365,7 +1365,7 @@
                 }
                 syncSalesLinesPermissionsToFrame();
             };
-    const salesLinesVersion = '20260510-request-reset';
+    const salesLinesVersion = '20260510-request-prune-fix';
     frame.src = `./sales-lines.html?v=${salesLinesVersion}${isTestLocalSession() ? '&testLocal=1' : ''}`;
             frame.dataset.embeddedReady = 'true';
         }
@@ -2171,6 +2171,9 @@
 
         async function cleanupLegacySalesLineOrdersFromPayload(payload, options = {}) {
             if (!Array.isArray(orders) || orders.length === 0) return 0;
+            const source = String(payload?.meta?.source || '').trim();
+            const shouldPrune = options.force === true || source === 'request-reset' || source === 'reset';
+            if (!shouldPrune) return 0;
 
             const linkedRequestIds = new Set(
                 (Array.isArray(payload?.allOrders) ? payload.allOrders : [])
@@ -2854,6 +2857,7 @@
                 if (typeof renderDashboard === 'function') renderDashboard();
                 if (typeof renderWeekSidebar === 'function') renderWeekSidebar();
                 if (typeof applyRequestFilters === 'function') applyRequestFilters();
+                if (typeof renderCurrentView === 'function') renderCurrentView();
                 if (typeof renderOrders === 'function') renderOrders();
             }
 
