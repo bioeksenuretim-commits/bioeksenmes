@@ -2682,6 +2682,23 @@ async function saveSalesLinesState(meta = {}, options = {}) {
     }
 }
 
+window.getSalesLinesBackupPayload = function () {
+    return {
+        version: 1,
+        savedAt: new Date().toISOString(),
+        meta: {
+            source: 'sales-lines-frame-backup',
+            rowCount: Array.isArray(allOrders) ? allOrders.length : 0,
+            todayOutputOrderIds: Array.from(todayOutputOrderIds || [])
+        },
+        editedLog,
+        columnOrder,
+        allOrders: Array.isArray(allOrders)
+            ? allOrders.map(order => serializeSalesLineOrderCached(order, true))
+            : []
+    };
+};
+
 function loadSalesLinesStateFromPayload(payload, options = {}) {
     try {
         if (!options.forceDuringEdit && isSalesLineInlineEditActive()) {

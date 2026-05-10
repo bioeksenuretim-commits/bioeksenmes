@@ -13,7 +13,17 @@ class BackupManager {
      */
     async downloadJSON() {
         try {
-            const jsonString = await this.storage.exportToJSON();
+            const requestOrders = await this.getRequestOrdersForBackup();
+            const salesPayload = await this.getSalesLinesPayloadForBackup();
+            const salesOrders = Array.isArray(salesPayload?.allOrders) ? salesPayload.allOrders : [];
+            const jsonString = JSON.stringify({
+                version: '2.0',
+                exportDate: new Date().toISOString(),
+                totalOrders: requestOrders.length,
+                totalSalesLines: salesOrders.length,
+                orders: requestOrders,
+                salesLines: salesPayload || { allOrders: [], editedLog: {} }
+            }, null, 2);
             const blob = new Blob([jsonString], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
 
@@ -68,7 +78,7 @@ class BackupManager {
         try {
             await ensureSheetJs();
             const requestOrders = await this.getRequestOrdersForBackup();
-            const salesPayload = this.getSalesLinesPayloadForBackup();
+            const salesPayload = await this.getSalesLinesPayloadForBackup();
             const salesOrders = Array.isArray(salesPayload?.allOrders) ? salesPayload.allOrders : [];
             const salesChanges = salesPayload?.editedLog || {};
 
@@ -104,19 +114,114 @@ class BackupManager {
         return sourceOrders.filter(order => order && order.sourceSystem !== 'sales-lines');
     }
 
-    getSalesLinesPayloadForBackup() {
+    async getSalesLinesPayloadForBackup() {
+        const framePayload = this.getSalesLinesPayloadFromFrameForBackup();
+        if (Array.isArray(framePayload?.allOrders)) {
+            return this.normalizeSalesLinesPayloadForBackup(framePayload);
+        }
+
+        const indexedPayload = await this.getSalesLinesPayloadFromIndexedDbForBackup();
+        if (Array.isArray(indexedPayload?.allOrders)) {
+            return this.normalizeSalesLinesPayloadForBackup(indexedPayload);
+        }
+
         try {
-            const raw = localStorage.getItem('reaksiyon_sales_lines_data_v1');
-            if (!raw) return { allOrders: [], editedLog: {} };
+            const raw = localStorage.getItem(this.getSalesLinesStorageKeyForBackup());
+            if (!raw) throw new Error('local sales lines marker not found');
             const payload = JSON.parse(raw);
-            return {
-                allOrders: Array.isArray(payload?.allOrders) ? payload.allOrders : [],
-                editedLog: payload?.editedLog || {}
-            };
+            if (Array.isArray(payload?.allOrders)) {
+                return this.normalizeSalesLinesPayloadForBackup(payload);
+            }
         } catch (error) {
             console.warn('Satış satırları yedek verisi okunamadı:', error);
-            return { allOrders: [], editedLog: {} };
         }
+
+        try {
+            if (typeof firebaseSync !== 'undefined' && firebaseSync && typeof firebaseSync.getSalesLinesPayload === 'function') {
+                const payload = await firebaseSync.getSalesLinesPayload();
+                if (Array.isArray(payload?.allOrders)) {
+                    return this.normalizeSalesLinesPayloadForBackup(payload);
+                }
+            }
+        } catch (error) {
+            console.warn('Sales lines cloud backup data could not be read:', error);
+        }
+
+        return { allOrders: [], editedLog: {}, columnOrder: [], meta: {} };
+    }
+
+    getSalesLinesPayloadFromFrameForBackup() {
+        try {
+            const frame = document.getElementById('salesLinesFrame');
+            const getter = frame?.contentWindow?.getSalesLinesBackupPayload;
+            if (typeof getter !== 'function') return null;
+            return getter();
+        } catch (error) {
+            console.warn('Sales lines frame backup data could not be read:', error);
+            return null;
+        }
+    }
+
+    normalizeSalesLinesPayloadForBackup(payload) {
+        return {
+            allOrders: Array.isArray(payload?.allOrders) ? payload.allOrders : [],
+            editedLog: payload?.editedLog || {},
+            columnOrder: Array.isArray(payload?.columnOrder) ? payload.columnOrder : [],
+            meta: payload?.meta || {}
+        };
+    }
+
+    getSalesLinesStorageKeyForBackup() {
+        return this.isTestLocalSessionForBackup()
+            ? 'reaksiyon_test_sales_lines_data_v1'
+            : 'reaksiyon_sales_lines_data_v1';
+    }
+
+    getSalesLinesCacheDbNameForBackup() {
+        return this.isTestLocalSessionForBackup()
+            ? 'ReaksiyonTestSalesLinesCache'
+            : 'ReaksiyonSalesLinesCache';
+    }
+
+    isTestLocalSessionForBackup() {
+        try {
+            const session = JSON.parse(sessionStorage.getItem('reaksiyon_test_session') || 'null');
+            return session?.authProvider === 'test-local';
+        } catch (_) {
+            return false;
+        }
+    }
+
+    async getSalesLinesPayloadFromIndexedDbForBackup() {
+        if (!('indexedDB' in window)) return null;
+
+        return new Promise(resolve => {
+            const request = indexedDB.open(this.getSalesLinesCacheDbNameForBackup(), 1);
+            request.onerror = () => resolve(null);
+            request.onupgradeneeded = event => {
+                event.target.transaction.abort();
+                resolve(null);
+            };
+            request.onsuccess = event => {
+                const db = event.target.result;
+                if (!db.objectStoreNames.contains('payloads')) {
+                    db.close();
+                    resolve(null);
+                    return;
+                }
+
+                const transaction = db.transaction(['payloads'], 'readonly');
+                const getRequest = transaction.objectStore('payloads').get('current');
+                getRequest.onsuccess = () => {
+                    db.close();
+                    resolve(getRequest.result?.payload || null);
+                };
+                getRequest.onerror = () => {
+                    db.close();
+                    resolve(null);
+                };
+            };
+        });
     }
 
     appendGroupedRequestSheets(wb, orders) {
@@ -286,23 +391,26 @@ class BackupManager {
      */
     async downloadCSV() {
         try {
-            const orders = await this.storage.getAll();
+            const requestOrders = await this.getRequestOrdersForBackup();
+            const salesPayload = await this.getSalesLinesPayloadForBackup();
+            const salesOrders = Array.isArray(salesPayload?.allOrders) ? salesPayload.allOrders : [];
 
-            if (orders.length === 0) {
+            if (requestOrders.length === 0 && salesOrders.length === 0) {
                 showToast('Dışa aktarılacak veri yok', 'warning');
                 return false;
             }
 
             // CSV başlıkları
             const headers = [
-                'Hafta', 'Talep Tarihi', 'Talep Eden', 'Katalog No', 'Madde No',
+                'Kaynak', 'Hafta', 'Talep Tarihi', 'Talep Eden', 'Katalog No', 'Madde No',
                 'Rxn Adı', 'Format', 'Talep Miktar', 'Üretim Emri No', 'Üretilen Miktar',
                 'Sipariş No', 'Çıkış Tarihi', 'Talep Eden Not', 'Lot No',
                 'Üretim Yapan Ekibin Notu', 'Durum', 'Üretici', 'QC Onaylayan'
             ];
 
             // CSV satırları
-            const rows = orders.map(order => [
+            const requestRows = requestOrders.map(order => [
+                'Talep',
                 order.weekNumber || '',
                 order.requestDate || '',
                 order.requester || '',
@@ -324,6 +432,29 @@ class BackupManager {
             ]);
 
             // CSV oluştur
+            const salesRows = salesOrders.map(order => [
+                'Sat\u0131\u015f Sat\u0131r\u0131',
+                this.getSalesLineValue(order, ['Hafta']),
+                this.getSalesLineValue(order, ['Sipari\u015f Tarihi']),
+                this.getSalesLineValue(order, ['Temsilci']),
+                this.getSalesLineValue(order, ['No']),
+                '',
+                this.getSalesLineValue(order, ['A\u00e7\u0131klama']),
+                this.getSalesLineValue(order, ['\u00d6l\u00e7\u00fc Birimi']),
+                this.getSalesLineValue(order, ['Miktar']),
+                '',
+                '',
+                this.getSalesLineValue(order, ['Belge No']),
+                this.getSalesLineValue(order, ['Teslim Tarihi']),
+                this.escapeCsv(this.getSalesLineValue(order, ['Sat\u0131\u015f\u0131n Notlar\u0131'])),
+                this.escapeCsv(this.getSalesLineValue(order, ['Lot No'])),
+                this.escapeCsv(this.getSalesLineValue(order, ['\u00dcretimin Notlar\u0131'])),
+                this.getSalesLineValue(order, ['\u00dcr\u00fcn Durumu']),
+                this.getSalesLineValue(order, ['Temsilci']),
+                ''
+            ]);
+            const rows = [...requestRows, ...salesRows];
+
             const csvContent = [
                 headers.join(','),
                 ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
@@ -343,7 +474,7 @@ class BackupManager {
 
             URL.revokeObjectURL(url);
 
-            showToast(`${orders.length} sipariş CSV olarak indirildi`, 'success');
+            showToast(`${rows.length} satir CSV olarak indirildi`, 'success');
             return true;
         } catch (error) {
             showToast('CSV indirme hatası: ' + error.message, 'error');
@@ -357,6 +488,14 @@ class BackupManager {
     escapeCsv(str) {
         if (typeof str !== 'string') return '';
         return str.replace(/"/g, '""');
+    }
+
+    getSalesLineValue(row, keys) {
+        for (const key of keys) {
+            const value = row?.[key];
+            if (value !== undefined && value !== null && String(value).trim() !== '') return value;
+        }
+        return '';
     }
 
     getRowValue(row, keys) {

@@ -1365,7 +1365,7 @@
                 }
                 syncSalesLinesPermissionsToFrame();
             };
-    const salesLinesVersion = '20260510-realtime-fallback';
+    const salesLinesVersion = '20260510-backup-frame-payload';
     frame.src = `./sales-lines.html?v=${salesLinesVersion}${isTestLocalSession() ? '&testLocal=1' : ''}`;
             frame.dataset.embeddedReady = 'true';
         }
