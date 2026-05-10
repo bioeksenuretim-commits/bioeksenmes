@@ -3615,6 +3615,22 @@
             }, 0);
         }
 
+        function renderOrdersTableColGroup(safeColumns) {
+            const colGroup = document.getElementById('ordersTableColGroup');
+            const table = document.querySelector('#orders .excel-table');
+            if (!colGroup || !table) return;
+
+            const toPx = value => {
+                const parsed = parseInt(String(value || '').replace('px', ''), 10);
+                return Number.isFinite(parsed) && parsed > 0 ? parsed : 120;
+            };
+            const widths = [44, ...safeColumns.map(col => toPx(col.width)), 90, 150];
+            colGroup.innerHTML = widths.map(width => `<col style="width:${width}px;">`).join('');
+            const totalWidth = widths.reduce((sum, width) => sum + width, 0);
+            table.style.width = `${totalWidth}px`;
+            table.style.minWidth = `${totalWidth}px`;
+        }
+
         function renderTableHeader() {
             const thead = document.querySelector('#orders .excel-table thead');
             const safeColumns = getSafeColumns();
@@ -3622,9 +3638,10 @@
                 currentColumns = safeColumns;
                 localStorage.setItem('reaksiyon_column_order', JSON.stringify(currentColumns));
             }
+            renderOrdersTableColGroup(safeColumns);
 
             let html = '<tr class="filter-header-row">';
-            html += '<th style="width: 40px;"></th>'; // Icon col
+            html += '<th class="select-col" style="width: 44px;"></th>'; // Icon col
 
             safeColumns.forEach((col, index) => {
                 // Determine if this column has an active filter
@@ -5051,6 +5068,7 @@
             showLoading('Veriler İşleniyor...');
 
             setTimeout(() => {
+                try {
                 // Read first sheet
                 const firstSheetName = workbook.SheetNames[0];
                 const worksheet = workbook.Sheets[firstSheetName];
@@ -5060,6 +5078,25 @@
 
                 if (jsonData.length === 0) {
                     showToast('Excel dosyası boş veya okunamadı.', 'error');
+                    hideLoading();
+                    input.value = '';
+                    return;
+                }
+
+                if (isDirectOrdersExcelData(jsonData)) {
+                    const addedCount = importDirectOrdersExcelData(jsonData, targetWeek);
+                    if (addedCount > 0) {
+                        saveOrders();
+                        renderDashboard();
+                        applyRequestFilters();
+                        renderWeekSidebar();
+                        switchTab('orders');
+                        showToast(`${jsonData.length} satır okundu, ${addedCount} talep içe aktarıldı.`, 'success');
+                    } else {
+                        showToast('İçe aktarılacak yeni talep satırı bulunamadı. Bu dosya daha önce yüklenmiş olabilir.', 'warning');
+                    }
+                    input.value = '';
+                    hideLoading();
                     return;
                 }
 
@@ -5122,6 +5159,8 @@
 
                 if (catalogKeys.length === 0) {
                     showToast('İşlenecek veri bulunamadı.', 'warning');
+                    hideLoading();
+                    input.value = '';
                     return;
                 }
 
@@ -5236,7 +5275,146 @@
                 input.value = '';
 
                 hideLoading();
+                } catch (err) {
+                    console.error(err);
+                    showToast('Veri işleme hatası: ' + err.message, 'error');
+                    hideLoading();
+                    input.value = '';
+                }
             }, 50);
+        }
+
+        function normalizeExcelRow(row) {
+            const rowLower = {};
+            Object.keys(row || {}).forEach(key => {
+                rowLower[String(key || '').trim().toLocaleLowerCase('tr')] = row[key];
+            });
+            return rowLower;
+        }
+
+        function getExcelValue(rowLower, keys) {
+            for (const key of keys) {
+                const normalizedKey = String(key || '').trim().toLocaleLowerCase('tr');
+                if (Object.prototype.hasOwnProperty.call(rowLower, normalizedKey)) return rowLower[normalizedKey];
+            }
+            return '';
+        }
+
+        function isBlankExcelValue(value) {
+            return value === null || value === undefined || String(value).trim() === '';
+        }
+
+        function parseExcelNumber(value) {
+            if (isBlankExcelValue(value)) return null;
+            if (typeof value === 'number') return value;
+            const normalized = String(value).trim().replace(/\./g, '').replace(',', '.');
+            const parsed = parseFloat(normalized);
+            return Number.isFinite(parsed) ? parsed : null;
+        }
+
+        function parseExcelDateOnly(value) {
+            if (isBlankExcelValue(value)) return '';
+            if (value instanceof Date && !isNaN(value.getTime())) {
+                return value.toISOString().split('T')[0];
+            }
+            if (typeof value === 'number' && Number.isFinite(value)) {
+                const utcDays = Math.floor(value - 25569);
+                const date = new Date(utcDays * 86400 * 1000);
+                if (!isNaN(date.getTime())) return date.toISOString().split('T')[0];
+            }
+
+            const raw = String(value).trim();
+            const isoMatch = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+            if (isoMatch) {
+                const [, y, m, d] = isoMatch;
+                return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+            }
+            const trMatch = raw.match(/^(\d{1,2})[./](\d{1,2})[./](\d{4})/);
+            if (trMatch) {
+                const [, d, m, y] = trMatch;
+                return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+            }
+            const parsedDate = new Date(raw);
+            if (!isNaN(parsedDate.getTime())) return parsedDate.toISOString().split('T')[0];
+            return raw;
+        }
+
+        function normalizeImportedStatus(value) {
+            const raw = String(value || '').trim();
+            if (!raw) return '-';
+            const key = raw.toLocaleLowerCase('tr');
+            const statusMap = {
+                'işlem bekliyor': '-',
+                'islem bekliyor': '-',
+                'iptal edildi': 'İptal Edildi',
+                'İptal edildi': 'İptal Edildi',
+                'qc geçti': 'QC Geçti',
+                'qc gecti': 'QC Geçti',
+                'qc bekliyor': 'QC Bekliyor',
+                'teslim edildi': 'Teslim Edildi',
+                'etiketlendi': 'Etiketlendi',
+                'qc tekrarlanacak': 'QC tekrarlanacak',
+                'imha edilecek': 'İmha edilecek',
+                'qc gidecek': 'QC GİDECEK',
+                'dağıtıldı': 'Dağıtıldı',
+                'dagitildi': 'Dağıtıldı'
+            };
+            return statusMap[key] || raw;
+        }
+
+        function isDirectOrdersExcelData(jsonData) {
+            return Array.isArray(jsonData) && jsonData.some(row => {
+                const rowLower = normalizeExcelRow(row);
+                return !isBlankExcelValue(getExcelValue(rowLower, ['Madde No']))
+                    && Object.prototype.hasOwnProperty.call(rowLower, 'ürün açıklaması');
+            });
+        }
+
+        function importDirectOrdersExcelData(jsonData, targetWeek) {
+            let addedCount = 0;
+
+            jsonData.forEach((row, index) => {
+                const rowLower = normalizeExcelRow(row);
+                const materialNo = String(getExcelValue(rowLower, ['Madde No']) || '').trim();
+                if (!materialNo) return;
+
+                const weekNumber = getExcelRowWeek(rowLower, targetWeek);
+                const requestDate = parseExcelDateOnly(getExcelValue(rowLower, ['Tarih', 'Talep Tarihi'])) || new Date().toISOString().split('T')[0];
+                const plannedStartDate = parseExcelDateOnly(getExcelValue(rowLower, ['Planlanan Başlangıç', 'Planlanan Baslangic']));
+                const plannedEndDate = parseExcelDateOnly(getExcelValue(rowLower, ['Planlanan Bitiş', 'Planlanan Bitis']));
+                const statusValue = getExcelValue(rowLower, ['Durum']) || getExcelValue(rowLower, ['QC sonuc', 'QC sonuç', 'QC Sonuç']);
+
+                const beforeLength = orders.length;
+                createOrderEntry({
+                    weekNumber,
+                    requestDate,
+                    materialNo,
+                    catalogNo: '',
+                    rxnName: String(getExcelValue(rowLower, ['Ürün Açıklaması', 'Urun Aciklamasi']) || '').trim(),
+                    format: getExcelValue(rowLower, ['Format']),
+                    requesterNote: getExcelValue(rowLower, ['Talep Geçen Not', 'Talep Gecen Not']),
+                    quantity: parseExcelNumber(getExcelValue(rowLower, ['Planlanan Miktar (Rack)'])),
+                    plannedRxnQty: parseExcelNumber(getExcelValue(rowLower, ['Planlanan Miktar (Rxn)'])),
+                    plannedWellQty: parseExcelNumber(getExcelValue(rowLower, ['Planlanan (well)', 'Planlanan Well'])),
+                    requester: '',
+                    producer: getExcelValue(rowLower, ['Sorumlu Kişi', 'Sorumlu Kisi']),
+                    plannedStartDate,
+                    plannedEndDate,
+                    deliveryDate: plannedEndDate,
+                    producedQty: parseExcelNumber(getExcelValue(rowLower, ['Gerçekleşen Miktar (Rack)', 'Gerceklesen Miktar (Rack)'])),
+                    actualRxnQty: parseExcelNumber(getExcelValue(rowLower, ['Gerçekleşen Miktar (Rxn)', 'Gerceklesen Miktar (Rxn)'])),
+                    actualWellQty: parseExcelNumber(getExcelValue(rowLower, ['Gerçekleşen Miktar (well)', 'Gerceklesen Miktar (well)'])),
+                    productionOrderNo: getExcelValue(rowLower, ['SBUE No']),
+                    lotNo: getExcelValue(rowLower, ['Lot No']),
+                    status: normalizeImportedStatus(statusValue),
+                    qcApprover: getExcelValue(rowLower, ['QC Onaylayan']),
+                    sourceSystem: 'orders-excel',
+                    sourceExternalId: `${weekNumber || ''}|${requestDate}|${materialNo}|${index + 1}`
+                });
+                if (orders.length > beforeLength) addedCount++;
+            });
+
+            return addedCount;
         }
 
         function getExcelRowWeek(rowLower, fallbackWeek = null) {
@@ -5319,12 +5497,12 @@
         }
 
         function createOrderEntry(data) {
-            const newId = (data.sourceSystem === 'sales-lines' && data.sourceExternalId)
+            const newId = data.sourceExternalId
                 ? buildDeterministicOrderId(data)
                 : Date.now().toString() + Math.random().toString(36).substr(2, 5);
 
             // Aynı ID'li kayıt zaten varsa tekrar ekleme (çift sync koruması)
-            if (data.sourceSystem === 'sales-lines' && orders.some(o => o.id === newId)) {
+            if (data.sourceExternalId && orders.some(o => o.id === newId)) {
                 return orders.find(o => o.id === newId);
             }
 
@@ -5355,7 +5533,7 @@
                 actualRxnQty: data.actualRxnQty ?? null,
                 actualWellQty: data.actualWellQty ?? null,
                 productionOrderNo: data.productionOrderNo || '',
-                qcApprover: '',
+                qcApprover: data.qcApprover || '',
                 createdAt: new Date().toISOString(),
                 lastModifiedBy: getActiveUserParaf(''),
                 lastModifiedAt: new Date().toISOString(),

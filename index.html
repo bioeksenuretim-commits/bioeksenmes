@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/css/modules.css">
-    <link rel="stylesheet" href="/css/app-main.css?v=20260506-hover-performance">
+    <link rel="stylesheet" href="/css/app-main.css?v=20260510-orders-import-table">
 
     <script defer src="/js/excel-loader.js?v=20260505-performance"></script>
 
@@ -601,8 +601,9 @@
 
             <!-- Table -->
             <div class="orders-table-wrap">
-                <div class="orders-table-scroll">
+                <div class="orders-table-scroll table-container">
                     <table class="data-table excel-table">
+                        <colgroup id="ordersTableColGroup"></colgroup>
                         <thead>
                             <tr class="filter-header-row">
                                 <th style="min-width: 60px;">
@@ -1153,6 +1154,6 @@
     <div class="toast-container" id="toastContainer"></div>
 
     <script defer src="/js/orders-renderer-v1.js?v=20260508-performance-split"></script>
-    <script defer src="/js/app-main-v4.js?v=20260510-admin-import-excel-week"></script>
+    <script defer src="/js/app-main-v4.js?v=20260510-orders-import-table"></script>
 </body>
 </html>
