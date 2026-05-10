@@ -7,6 +7,9 @@ console.log('APP firebase-sync-v4 yüklendi');
 
 var firebaseSync = {
     ordersRef: null,
+    ordersV2Ref: null,
+    ordersRowsRef: null,
+    ordersMetaRef: null,
     productTreesRef: null,
     salesLinesRef: null,
     salesLinesV2Ref: null,
@@ -19,6 +22,10 @@ var firebaseSync = {
     isSalesLinesListening: false,
     lastSyncTimestamp: 0,
     orderCache: new Map(),
+    orderRowsCache: new Map(),
+    ordersMetaCache: null,
+    ordersEmitTimer: null,
+    ordersV2HadData: false,
     productTreeCache: new Map(),
     salesLinesCache: '',
     salesLinesPayloadCache: null,
@@ -41,6 +48,9 @@ var firebaseSync = {
         }
 
         this.ordersRef = firebase.database().ref('orders');
+        this.ordersV2Ref = firebase.database().ref('ordersV2');
+        this.ordersRowsRef = firebase.database().ref('ordersV2/rows');
+        this.ordersMetaRef = firebase.database().ref('ordersV2/meta');
         this.productTreesRef = firebase.database().ref('productTrees');
         this.salesLinesRef = firebase.database().ref('salesLines/state');
         this.salesLinesV2Ref = firebase.database().ref('salesLines/v2');
@@ -199,6 +209,64 @@ var firebaseSync = {
             map.set(String(order.id), this.cloneData(order));
         });
         return map;
+    },
+
+    getOrderRowKey(orderOrId) {
+        const id = typeof orderOrId === 'object' ? orderOrId?.id : orderOrId;
+        return this.encodeDatabaseKey(id);
+    },
+
+    buildOrderRowEntry(order, index = 0) {
+        const row = this.cloneData(order || {});
+        const updatedAt = row.updatedAt || row.lastModifiedAt || row.createdAt || new Date().toISOString();
+        return {
+            index,
+            orderJson: JSON.stringify(row),
+            orderUpdatedAt: updatedAt,
+            orderUpdatedBy: row.updatedBy || row.lastModifiedBy || '',
+            orderUpdatedByUid: row.updatedByUid || null,
+            orderVersion: Number(row.version || 0) || 1
+        };
+    },
+
+    parseOrderRowEntry(entry) {
+        if (!entry) return {};
+        if (typeof entry.orderJson === 'string') {
+            try {
+                return JSON.parse(entry.orderJson);
+            } catch (_) {
+                return {};
+            }
+        }
+        return this.cloneData(entry.data || entry);
+    },
+
+    buildOrdersSnapshotFromRows(rowsValue = null) {
+        const source = rowsValue || Object.fromEntries(this.orderRowsCache || new Map());
+        return Object.values(source || {})
+            .filter(Boolean)
+            .sort((a, b) => Number(a.index || 0) - Number(b.index || 0))
+            .reduce((acc, entry) => {
+                const order = this.parseOrderRowEntry(entry);
+                if (order?.id) acc[String(order.id)] = order;
+                return acc;
+            }, {});
+    },
+
+    hydrateOrderRowsCaches(orderList = []) {
+        const sortedOrders = this.sortOrdersList(orderList || []);
+        this.orderRowsCache = new Map();
+        sortedOrders.forEach((order, index) => {
+            if (!order?.id) return;
+            this.orderRowsCache.set(this.getOrderRowKey(order), this.buildOrderRowEntry(order, index));
+        });
+        this.orderCache = this.buildOrderMap(sortedOrders);
+        this.ordersMetaCache = {
+            version: 2,
+            savedAt: new Date().toISOString(),
+            rowCount: this.orderRowsCache.size
+        };
+        return sortedOrders;
     },
 
     normalizeManagedProduct(product) {
@@ -487,6 +555,7 @@ var firebaseSync = {
         }
 
         this.orderCache = this.buildOrderMap(canonicalOrders);
+        this.hydrateOrderRowsCaches(canonicalOrders);
 
         if (typeof storage !== 'undefined' && storage.saveAll) {
             storage.saveAll(orders).catch(error => console.warn('IndexedDB cache hatası:', error));
@@ -532,6 +601,64 @@ var firebaseSync = {
     },
 
     startListening() {
+        if (this.ordersRowsRef && !this.isListening) {
+            this.isListening = true;
+            const scheduleEmit = () => {
+                this.lastOrdersEventAt = Date.now();
+                if (typeof setSyncStatus === 'function' && typeof navigator !== 'undefined' && navigator.onLine !== false) {
+                    setSyncStatus('live');
+                }
+                if (this.orderWriteInFlight) {
+                    this.suppressedOrdersSnapshot = this.buildOrdersSnapshotFromRows();
+                    return;
+                }
+                if (this.ordersEmitTimer) clearTimeout(this.ordersEmitTimer);
+                this.ordersEmitTimer = setTimeout(() => {
+                    this.ordersEmitTimer = null;
+                    this.scheduleRemoteOrdersApply(this.buildOrdersSnapshotFromRows(), 0);
+                }, 150);
+            };
+
+            if (this.ordersMetaRef) {
+                this.ordersMetaRef.on('value', snapshot => {
+                    const meta = snapshot.val();
+                    if (!meta) return;
+                    this.ordersV2HadData = true;
+                    this.ordersMetaCache = meta;
+                    scheduleEmit();
+                });
+            }
+
+            this.ordersRowsRef.on('child_added', snapshot => {
+                if (!snapshot.key || this.orderRowsCache.has(snapshot.key)) return;
+                this.ordersV2HadData = true;
+                this.orderRowsCache.set(snapshot.key, snapshot.val());
+                scheduleEmit();
+            });
+            this.ordersRowsRef.on('child_changed', snapshot => {
+                if (!snapshot.key) return;
+                this.ordersV2HadData = true;
+                this.orderRowsCache.set(snapshot.key, snapshot.val());
+                scheduleEmit();
+            });
+            this.ordersRowsRef.on('child_removed', snapshot => {
+                if (!snapshot.key) return;
+                this.orderRowsCache.delete(snapshot.key);
+                scheduleEmit();
+            });
+
+            if (this.ordersRef) {
+                this.ordersRef.on('value', snapshot => {
+                    if (this.ordersV2HadData || (this.orderRowsCache && this.orderRowsCache.size > 0)) return;
+                    this.lastOrdersEventAt = Date.now();
+                    this.scheduleRemoteOrdersApply(snapshot.val());
+                });
+            }
+
+            console.log('Firebase siparis row-based dinleme baslatildi');
+            return;
+        }
+
         if (!this.ordersRef || this.isListening) return;
 
         this.isListening = true;
@@ -552,6 +679,12 @@ var firebaseSync = {
     },
 
     stopListening() {
+        if (this.ordersMetaRef) this.ordersMetaRef.off();
+        if (this.ordersRowsRef) this.ordersRowsRef.off();
+        if (this.ordersEmitTimer) {
+            clearTimeout(this.ordersEmitTimer);
+            this.ordersEmitTimer = null;
+        }
         if (this.ordersRef) {
             this.ordersRef.off('value');
         }
@@ -564,7 +697,7 @@ var firebaseSync = {
     },
 
     async syncOrderDiff(orderList = [], options = {}) {
-        if (!this.ordersRef) return false;
+        if (!this.ordersRowsRef && !this.ordersRef) return false;
         if (typeof setSyncStatus === 'function') setSyncStatus('syncing');
 
         const currentMap = this.buildOrderMap(orderList);
@@ -601,15 +734,30 @@ var firebaseSync = {
 
         const batchedUpdates = {};
         upserts.forEach(item => {
-            batchedUpdates[item.id] = item.after;
+            batchedUpdates[this.getOrderRowKey(item.id)] = this.buildOrderRowEntry(item.after);
         });
         deletions.forEach(item => {
-            batchedUpdates[item.id] = item.after;
+            batchedUpdates[this.getOrderRowKey(item.id)] = this.buildOrderRowEntry(item.after);
         });
 
         this.orderWriteInFlight = true;
         try {
-            await this.ordersRef.update(batchedUpdates);
+            if (this.ordersRowsRef) {
+                await this.ordersRowsRef.update(batchedUpdates);
+                if (this.ordersMetaRef) {
+                    await this.ordersMetaRef.set({
+                        version: 2,
+                        savedAt: new Date().toISOString(),
+                        rowCount: currentMap.size,
+                        updatedAt: new Date().toISOString()
+                    });
+                }
+            } else {
+                const legacyUpdates = {};
+                upserts.forEach(item => { legacyUpdates[item.id] = item.after; });
+                deletions.forEach(item => { legacyUpdates[item.id] = item.after; });
+                await this.ordersRef.update(legacyUpdates);
+            }
         } finally {
             this.orderWriteInFlight = false;
             this.flushSuppressedOrdersSnapshot();
@@ -640,9 +788,13 @@ var firebaseSync = {
         const nextCache = new Map(previousMap);
         upserts.forEach(item => {
             nextCache.set(item.id, item.after);
+            this.orderRowsCache.set(this.getOrderRowKey(item.id), this.buildOrderRowEntry(item.after));
             this.updateLocalOrderFromWrite(item.after);
         });
-        deletions.forEach(item => nextCache.set(item.id, item.after));
+        deletions.forEach(item => {
+            nextCache.set(item.id, item.after);
+            this.orderRowsCache.set(this.getOrderRowKey(item.id), this.buildOrderRowEntry(item.after));
+        });
         this.orderCache = nextCache;
         this.lastSyncTimestamp = Date.now();
         if (typeof setSyncStatus === 'function') setSyncStatus('live');
@@ -654,7 +806,7 @@ var firebaseSync = {
     },
 
     async pushSingleOrder(order, options = {}) {
-        if (!this.ordersRef || !order?.id) return false;
+        if ((!this.ordersRowsRef && !this.ordersRef) || !order?.id) return false;
         if (typeof setSyncStatus === 'function') setSyncStatus('syncing');
 
         const id = String(order.id);
@@ -666,12 +818,24 @@ var firebaseSync = {
 
         this.orderWriteInFlight = true;
         try {
-            await this.ordersRef.child(id).set(after);
+            if (this.ordersRowsRef) {
+                await this.ordersRowsRef.child(this.getOrderRowKey(id)).set(this.buildOrderRowEntry(after));
+                if (this.ordersMetaRef) {
+                    await this.ordersMetaRef.update({
+                        version: 2,
+                        savedAt: new Date().toISOString(),
+                        updatedAt: new Date().toISOString()
+                    });
+                }
+            } else {
+                await this.ordersRef.child(id).set(after);
+            }
         } finally {
             this.orderWriteInFlight = false;
             this.flushSuppressedOrdersSnapshot();
         }
         this.orderCache.set(id, after);
+        this.orderRowsCache.set(this.getOrderRowKey(id), this.buildOrderRowEntry(after));
         this.updateLocalOrderFromWrite(after);
         if (typeof setSyncStatus === 'function') setSyncStatus('live');
 
@@ -688,7 +852,7 @@ var firebaseSync = {
     },
 
     async removeOrder(orderId, options = {}) {
-        if (!this.ordersRef || !orderId) return false;
+        if ((!this.ordersRowsRef && !this.ordersRef) || !orderId) return false;
 
         const id = String(orderId);
         const before = this.orderCache.get(id) || null;
@@ -697,12 +861,24 @@ var firebaseSync = {
 
         this.orderWriteInFlight = true;
         try {
-            await this.ordersRef.child(id).set(after);
+            if (this.ordersRowsRef) {
+                await this.ordersRowsRef.child(this.getOrderRowKey(id)).set(this.buildOrderRowEntry(after));
+                if (this.ordersMetaRef) {
+                    await this.ordersMetaRef.update({
+                        version: 2,
+                        savedAt: new Date().toISOString(),
+                        updatedAt: new Date().toISOString()
+                    });
+                }
+            } else {
+                await this.ordersRef.child(id).set(after);
+            }
         } finally {
             this.orderWriteInFlight = false;
             this.flushSuppressedOrdersSnapshot();
         }
         this.orderCache.set(id, after);
+        this.orderRowsCache.set(this.getOrderRowKey(id), this.buildOrderRowEntry(after));
 
         await this.writeAuditLog({
             entityType: 'order',
@@ -717,22 +893,36 @@ var firebaseSync = {
     },
 
     async clearAll() {
-        if (!this.ordersRef) return false;
+        if (!this.ordersRowsRef && !this.ordersRef) return false;
 
-        const snapshot = await this.ordersRef.once('value');
-        const existing = snapshot.val() || {};
+        const existing = this.orderRowsCache && this.orderRowsCache.size > 0
+            ? this.buildOrdersSnapshotFromRows()
+            : ((await this.ordersRef.once('value')).val() || {});
         try {
-            await this.ordersRef.remove();
+            if (this.ordersV2Ref) {
+                await this.ordersV2Ref.set({
+                    meta: {
+                        version: 2,
+                        savedAt: new Date().toISOString(),
+                        rowCount: 0,
+                        clearedAt: new Date().toISOString()
+                    }
+                });
+            } else {
+                await this.ordersRef.remove();
+            }
         } catch (error) {
             const orderIds = Object.keys(existing);
             const chunkSize = 50;
             for (let i = 0; i < orderIds.length; i += chunkSize) {
                 const chunk = orderIds.slice(i, i + chunkSize);
-                await Promise.all(chunk.map(orderId => this.ordersRef.child(orderId).remove()));
+                await Promise.all(chunk.map(orderId => this.ordersRowsRef.child(this.getOrderRowKey(orderId)).remove()));
             }
         }
 
         this.orderCache = new Map();
+        this.orderRowsCache = new Map();
+        this.ordersV2HadData = true;
 
         await this.writeAuditLog({
             entityType: 'order',
@@ -747,13 +937,31 @@ var firebaseSync = {
     },
 
     async getAll() {
-        if (!this.ordersRef) return null;
+        if (!this.ordersRowsRef && !this.ordersRef) return null;
 
         try {
+            if (this.ordersRowsRef) {
+                const [metaSnapshot, rowsSnapshot] = await Promise.all([
+                    this.ordersMetaRef ? this.ordersMetaRef.once('value') : Promise.resolve({ val: () => null }),
+                    this.ordersRowsRef.once('value')
+                ]);
+                const rows = rowsSnapshot.val() || {};
+                const meta = metaSnapshot.val();
+                if (meta || Object.keys(rows).length > 0) {
+                    this.ordersV2HadData = true;
+                    this.ordersMetaCache = meta || null;
+                    this.orderRowsCache = new Map(Object.entries(rows));
+                    const result = Object.values(this.buildOrdersSnapshotFromRows());
+                    this.orderCache = this.buildOrderMap(result);
+                    return result;
+                }
+            }
+
             const snapshot = await this.ordersRef.once('value');
             const data = snapshot.val();
             const result = data ? Object.values(data) : [];
             this.orderCache = this.buildOrderMap(result);
+            this.hydrateOrderRowsCaches(result);
             return result;
         } catch (error) {
             console.error('Firebase sipariş okuma hatası:', error);
@@ -1310,7 +1518,7 @@ var offlineManager = {
 
         try {
             const pendingOps = this.getPendingOps();
-            if (firebaseSync.ordersRef && pendingOps.length > 0) {
+            if ((firebaseSync.ordersRowsRef || firebaseSync.ordersRef) && pendingOps.length > 0) {
                 await firebaseSync.getAll();
 
                 for (const op of pendingOps) {
@@ -1358,7 +1566,16 @@ var dataMigration = {
         try {
             const firebaseOrders = await firebaseSync.getAll();
 
-            if ((!firebaseOrders || firebaseOrders.length === 0) && orders.length > 0) {
+            if (firebaseOrders && firebaseOrders.length > 0 && !firebaseSync.ordersV2HadData && firebaseSync.ordersRowsRef) {
+                console.log(`${firebaseOrders.length} siparis ordersV2 yapisina aktariliyor...`);
+                await firebaseSync.syncOrderDiff(firebaseOrders, { force: true, reason: 'migrate_orders_v2' });
+                await firebaseSync.applyRemoteOrders(
+                    firebaseOrders.reduce((acc, order) => {
+                        acc[String(order.id)] = order;
+                        return acc;
+                    }, {})
+                );
+            } else if ((!firebaseOrders || firebaseOrders.length === 0) && orders.length > 0) {
                 console.log(`${orders.length} sipariş Firebase'e aktarılıyor...`);
                 await firebaseSync.syncOrderDiff(orders, { force: true, reason: 'initial_order_migration' });
                 if (typeof showToast === 'function') {
