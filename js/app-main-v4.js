@@ -3659,19 +3659,15 @@
                     : 'â†•';
 
                 html += `
-                    <th style="width: ${col.width}" data-col="${col.id}" data-filter-col="${col.id}">
-                        <div class="resizer" onmousedown="initResize(event, ${index})"></div>
-                        <div class="orders-th-inner">
-                            <span class="orders-sort-trigger" data-sort-col="${col.id}" style="cursor:pointer;">
-                                <span class="orders-sort-label">${col.label}</span>
-                                <span class="sort-icon">${sortIcon}</span>
-                            </span>
-                            <button type="button" class="filter-icon ${filterClass}" data-filter-button="${col.id}" data-filter-type="${col.type || 'text'}" onclick="handleOrdersHeaderFilterClick(event,this)" title="Filtrele" aria-label="${col.label} filtresi" aria-expanded="${(col.type === 'status' && activeOrdersFilterPopup === '_status_') || activeOrdersFilterPopup === col.id ? 'true' : 'false'}">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                                    <path d="M4 6h16l-6 7v4l-4 2v-6L4 6z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
-                                </svg>
-                            </button>
-                        </div>
+                    <th draggable="true" style="width: ${col.width}" data-col="${col.id}" data-filter-col="${col.id}"
+                        ondragstart="dragStart(event, ${index})"
+                        ondragover="dragOver(event, ${index})"
+                        ondragenter="dragEnter(event)"
+                        ondragleave="dragLeave(event)"
+                        ondrop="drop(event, ${index})">
+                        <span class="th-label orders-sort-trigger" data-sort-col="${col.id}" style="cursor:pointer;">${col.label} <span class="sort-icon">${sortIcon}</span></span>
+                        <span class="filter-icon ${filterClass}" data-filter-button="${col.id}" data-filter-type="${col.type || 'text'}" onclick="handleOrdersHeaderFilterClick(event,this)" title="Filtrele" aria-label="${col.label} filtresi" aria-expanded="${(col.type === 'status' && activeOrdersFilterPopup === '_status_') || activeOrdersFilterPopup === col.id ? 'true' : 'false'}">▼</span>
+                        <span class="col-resizer" title="Sütun genişliğini değiştir" onmousedown="initResize(event, ${index})" ondblclick="resetOrderColumnWidth(event, ${index})"></span>
                     </th>
                 `;
             });
@@ -3924,37 +3920,52 @@
         let draggedColIndex = null;
 
         function dragStart(e, index) {
+            if (e.target.closest('.col-resizer') || e.target.closest('.filter-icon')) {
+                e.preventDefault();
+                return;
+            }
             draggedColIndex = index;
             e.dataTransfer.effectAllowed = 'move';
-            e.target.classList.add('dragging');
+            e.dataTransfer.setData('text/plain', String(index));
+            e.target.closest('th')?.classList.add('dragging');
         }
 
         function dragOver(e, index) {
             e.preventDefault();
             e.dataTransfer.dropEffect = 'move';
+        }
 
-            // Add visual feedback
-            document.querySelectorAll('th').forEach(th => th.classList.remove('drag-over'));
-            e.currentTarget.classList.add('drag-over');
+        function dragEnter(e) {
+            e.preventDefault();
+            e.target.closest('th')?.classList.add('drag-over');
+        }
+
+        function dragLeave(e) {
+            e.target.closest('th')?.classList.remove('drag-over');
         }
 
         function drop(e, index) {
             e.preventDefault();
-            document.querySelectorAll('th').forEach(th => {
+            document.querySelectorAll('#orders .excel-table th').forEach(th => {
                 th.classList.remove('dragging');
                 th.classList.remove('drag-over');
             });
 
-            if (draggedColIndex === index) return;
+            if (draggedColIndex === null || draggedColIndex === index) {
+                draggedColIndex = null;
+                return;
+            }
 
             // Reorder columns
             const movedCol = currentColumns.splice(draggedColIndex, 1)[0];
             currentColumns.splice(index, 0, movedCol);
+            draggedColIndex = null;
 
             // Save and Re-render
             localStorage.setItem('reaksiyon_column_order', JSON.stringify(currentColumns));
             renderTableHeader();
             applyRequestFilters(); // Re-render rows with new order and current filters
+            showToast('Sütun yeri değiştirildi', 'info');
         }
 
         // Column Resizing Logic
@@ -3976,8 +3987,7 @@
             document.addEventListener('mouseup', stopResize);
 
             // Add visual class to header
-            const resizer = th.querySelector('.resizer');
-            if (resizer) resizer.classList.add('resizing');
+            if (th) th.classList.add('resizing');
         }
 
         function doResize(e) {
@@ -3989,17 +3999,22 @@
             // Update model
             currentColumns[resizingColIndex].width = newWidth + 'px';
 
-            // Update DOM immediately for smoothness
-            // Note: index in DOM depends on whether first col is empty. 
-            // In renderTableHeader we have an empty th first, let's verify renderTableHeader logic
-
             const ths = document.querySelectorAll('#orders .excel-table th');
             // first th is empty icon col, so index + 1
             const targetTh = ths[resizingColIndex + 1];
             if (targetTh) {
                 targetTh.style.width = newWidth + 'px';
-                // Some layouts need inner div resizing too if it has fixed width? 
-                // Our renderTableHeader sets width on TH, so inner div usually just follows if block
+            }
+
+            const colElement = document.querySelector(`#ordersTableColGroup col:nth-child(${resizingColIndex + 2})`);
+            if (colElement) colElement.style.width = newWidth + 'px';
+
+            const table = document.querySelector('#orders .excel-table');
+            if (table) {
+                const widths = [44, ...getSafeColumns().map(col => parseInt(String(col.width || '120px'), 10) || 120), 90, 150];
+                const totalWidth = widths.reduce((sum, width) => sum + width, 0);
+                table.style.width = `${totalWidth}px`;
+                table.style.minWidth = `${totalWidth}px`;
             }
         }
 
@@ -4012,8 +4027,7 @@
             // Clean up visual class
             const ths = document.querySelectorAll('#orders .excel-table th');
             if (ths[resizingColIndex + 1]) {
-                const resizer = ths[resizingColIndex + 1].querySelector('.resizer');
-                if (resizer) resizer.classList.remove('resizing');
+                ths[resizingColIndex + 1].classList.remove('resizing');
             }
 
             resizingColIndex = null;
@@ -4022,6 +4036,18 @@
             localStorage.setItem('reaksiyon_column_order', JSON.stringify(currentColumns));
 
             // Full re-render to ensure compatibility
+            renderTableHeader();
+            applyRequestFilters();
+        }
+
+        function resetOrderColumnWidth(event, index) {
+            event.preventDefault();
+            event.stopPropagation();
+            const col = currentColumns[index];
+            const defaultCol = col ? defaultColumns.find(item => item.id === col.id) : null;
+            if (!col || !defaultCol) return;
+            col.width = defaultCol.width;
+            localStorage.setItem('reaksiyon_column_order', JSON.stringify(currentColumns));
             renderTableHeader();
             applyRequestFilters();
         }

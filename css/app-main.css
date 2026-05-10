@@ -3170,6 +3170,51 @@
             z-index: 10;
             user-select: none;
             cursor: grab;
+            position: sticky;
+            overflow: hidden;
+        }
+
+        body.workspace-locked #orders .excel-table th.dragging {
+            opacity: 0.45;
+        }
+
+        body.workspace-locked #orders .excel-table th.drag-over {
+            box-shadow: inset -2px 0 0 #2563eb;
+        }
+
+        body.workspace-locked #orders .excel-table th .th-label {
+            display: inline-block;
+            max-width: calc(100% - 24px);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            vertical-align: middle;
+            white-space: nowrap;
+        }
+
+        body.workspace-locked #orders .excel-table th .col-resizer {
+            position: absolute;
+            top: 0;
+            right: -4px;
+            width: 8px;
+            height: 100%;
+            cursor: col-resize;
+            z-index: 3;
+            touch-action: none;
+        }
+
+        body.workspace-locked #orders .excel-table th .col-resizer::after {
+            content: '';
+            position: absolute;
+            top: 9px;
+            bottom: 9px;
+            left: 3px;
+            width: 1px;
+            background: transparent;
+        }
+
+        body.workspace-locked #orders .excel-table th:hover .col-resizer::after,
+        body.workspace-locked #orders .excel-table th.resizing .col-resizer::after {
+            background: #2563eb;
         }
 
         body.workspace-locked #orders .excel-table td {
