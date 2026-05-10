@@ -2176,6 +2176,58 @@ async function passSalesLineRequest(salesOrderId) {
     }
 }
 
+async function resetSalesLineRequest(salesOrderId) {
+    if (!canUseSalesLineRequestButton()) {
+        showToast('Talep geri alma yetkiniz yok.', 'warning');
+        return;
+    }
+
+    const salesOrder = allOrders.find(order => order._id === salesOrderId);
+    if (!salesOrder) return;
+
+    if (!hasPassedRequestForSalesOrder(salesOrder)) {
+        showToast('Bu satır için geri alınacak talep yok.', 'info');
+        return;
+    }
+
+    if (!window.parent || typeof window.parent.resetRequestsFromSalesLine !== 'function') {
+        showToast('Talep geri alma servisine ulaşılamadı.', 'error');
+        return;
+    }
+
+    if (!confirm('Bu satış satırından oluşturulan talep satırları silinsin mi?')) return;
+
+    try {
+        salesLineRequestPending[salesOrderId] = true;
+        renderTable();
+
+        const linkedRequestIds = getLinkedRequestIdsFromSalesOrder(salesOrder);
+        const result = await Promise.resolve(window.parent.resetRequestsFromSalesLine(
+            serializeSalesLineOrder(salesOrder),
+            { requestIds: linkedRequestIds }
+        ));
+
+        salesOrder._linkedRequestIds = [];
+        delete salesOrder._requestPassedAt;
+        delete salesOrder._requestStatus;
+        delete salesOrder._requestUnmatched;
+        salesOrder._requestResetAt = new Date().toISOString();
+
+        recordSalesLineChange(salesOrderId, ACTION_COLUMN, 'Talep Geçildi', 'Bekliyor');
+        queueSalesLineRowChange(salesOrder);
+        await saveSalesLinesState({ source: 'request-reset', salesOrderId }, { immediate: true });
+        renderTable();
+        renderDashboard();
+        showToast(result?.message || 'Talep geri alındı.', 'success');
+    } catch (error) {
+        console.error('Satış satırı talep geri alma hatası:', error);
+        showToast(error?.message || 'Talep geri alınırken hata oluştu.', 'error');
+    } finally {
+        delete salesLineRequestPending[salesOrderId];
+        renderTable();
+    }
+}
+
 async function bulkPassSalesLineRequestsByWeek() {
     if (!canUseSalesLineRequestButton()) {
         showToast('Toplu talep geçme yetkiniz yok.', 'warning');
@@ -4927,7 +4979,10 @@ function renderSalesLineActionCell(order) {
     if (!canUseSalesLineRequestButton()) {
         return `<td><button type="button" class="btn btn-sm" onclick="openSalesLineHistoryModal('${order._id}')">Değişiklikler</button>${deleteBtn}</td>`;
     }
-    return `<td style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;"><button type="button" class="btn btn-sm ${unmatched ? 'btn-danger' : (passed ? 'btn-success' : '')}" onclick="passSalesLineRequest('${order._id}')" ${pending || passed ? 'disabled' : ''}>${pending ? 'Gönderiliyor...' : (unmatched ? 'Karşılığı Yok' : (passed ? 'Talep Geçildi' : 'Talep Geç'))}</button><button type="button" class="btn btn-sm" onclick="openSalesLineHistoryModal('${order._id}')">Değişiklikler</button>${deleteBtn}</td>`;
+    const resetBtn = passed
+        ? `<button type="button" class="btn btn-sm btn-danger" onclick="resetSalesLineRequest('${order._id}')" ${pending ? 'disabled' : ''}>Talebi Geri Al</button>`
+        : '';
+    return `<td style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;"><button type="button" class="btn btn-sm ${unmatched ? 'btn-danger' : (passed ? 'btn-success' : '')}" onclick="passSalesLineRequest('${order._id}')" ${pending || passed ? 'disabled' : ''}>${pending ? 'İşleniyor...' : (unmatched ? 'Karşılığı Yok' : (passed ? 'Talep Geçildi' : 'Talep Geç'))}</button>${resetBtn}<button type="button" class="btn btn-sm" onclick="openSalesLineHistoryModal('${order._id}')">Değişiklikler</button>${deleteBtn}</td>`;
 }
 
 function renderSalesLineCell(order, col) {

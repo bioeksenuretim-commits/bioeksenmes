@@ -1365,7 +1365,7 @@
                 }
                 syncSalesLinesPermissionsToFrame();
             };
-    const salesLinesVersion = '20260510-backup-frame-payload';
+    const salesLinesVersion = '20260510-request-reset';
     frame.src = `./sales-lines.html?v=${salesLinesVersion}${isTestLocalSession() ? '&testLocal=1' : ''}`;
             frame.dataset.embeddedReady = 'true';
         }
@@ -2913,6 +2913,51 @@
                 message: `${successCount} satış satırı için ${allRequestIds.length} talep oluşturuldu.`
             };
         }
+
+        async function resetRequestsFromSalesLine(salesOrder, options = {}) {
+            const externalId = String(salesOrder?._id || salesOrder?.id || '').trim();
+            const requestIds = Array.isArray(options.requestIds)
+                ? options.requestIds.map(id => String(id || '').trim()).filter(Boolean)
+                : [];
+
+            if (!externalId && requestIds.length === 0) {
+                return { removedCount: 0, message: 'Geri alınacak talep bağlantısı bulunamadı.' };
+            }
+
+            const requestIdSet = new Set(requestIds);
+            const beforeCount = Array.isArray(orders) ? orders.length : 0;
+            orders = (Array.isArray(orders) ? orders : []).filter(order => {
+                if (!order || order.sourceSystem !== 'sales-lines') return true;
+                const orderId = String(order.id || '').trim();
+                const linkedIds = Array.isArray(order.linkedSalesOrderIds)
+                    ? order.linkedSalesOrderIds.map(id => String(id || '').trim())
+                    : [];
+                const sourceExternalId = String(order.sourceExternalId || '').trim();
+
+                if (requestIdSet.has(orderId)) return false;
+                if (externalId && linkedIds.includes(externalId)) return false;
+                if (externalId && sourceExternalId.startsWith(`${externalId}::`)) return false;
+                return true;
+            });
+
+            const removedCount = beforeCount - orders.length;
+            if (removedCount > 0) {
+                await Promise.resolve(saveOrders());
+                if (typeof updateWeekFilterOptions === 'function') updateWeekFilterOptions();
+                if (typeof renderDashboard === 'function') renderDashboard();
+                if (typeof renderWeekSidebar === 'function') renderWeekSidebar();
+                if (typeof applyRequestFilters === 'function') applyRequestFilters();
+                if (typeof renderOrders === 'function') renderOrders();
+            }
+
+            return {
+                removedCount,
+                message: removedCount > 0
+                    ? `${removedCount} talep geri alındı.`
+                    : 'Silinecek talep satırı bulunamadı; satış satırı bağlantısı temizlendi.'
+            };
+        }
+        window.resetRequestsFromSalesLine = resetRequestsFromSalesLine;
 
         let syncPayloadToOrdersPromise = null;
 
