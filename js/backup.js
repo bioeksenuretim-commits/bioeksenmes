@@ -335,7 +335,7 @@ class BackupManager {
             actualWellQty: { label: 'Gerceklesen Miktar (well)', wch: 20 },
             productionOrderNo: { label: 'SBUE No', wch: 18 },
             lotNo: { label: 'Lot No', wch: 20 },
-            status: { label: 'QC sonuc', wch: 15 },
+            status: { label: 'Durum', wch: 15 },
             qcApprover: { label: 'QC Onaylayan', wch: 14 }
         };
     }

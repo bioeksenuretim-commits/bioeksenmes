@@ -1102,13 +1102,13 @@
             { id: 'actualWellQty', label: 'Gerçekleşen Miktar (well)', width: '150px', editable: true, wrap: true },
             { id: 'productionOrderNo', label: 'SBUE No', width: '140px', wrap: true },
             { id: 'lotNo', label: 'Lot No', width: '160px', wrap: false },
-            { id: 'status', label: 'QC sonuc', width: '150px', type: 'status' },
+            { id: 'status', label: 'Durum', width: '150px', type: 'status' },
             { id: 'qcApprover', label: 'QC Onaylayan', width: '120px', wrap: true }
         ];
 
         let currentColumns = JSON.parse(localStorage.getItem('reaksiyon_column_order')) || defaultColumns;
 
-        const ORDERS_COLUMN_SCHEMA_VERSION = '20260510-production-plan-columns';
+        const ORDERS_COLUMN_SCHEMA_VERSION = '20260510-status-title';
         const storedOrdersColumnSchemaVersion = localStorage.getItem('reaksiyon_column_schema_version');
         const needsReorder = storedOrdersColumnSchemaVersion !== ORDERS_COLUMN_SCHEMA_VERSION;
 
@@ -6044,7 +6044,7 @@
                 'lotNo': { label: 'Lot No', wch: 20, format: v => v || '' },
                 'productionOrderNo': { label: 'SBUE No', wch: 18, format: v => v || '' },
                 'producerNote': { label: '?retim Yapan Ekibin Notu', wch: 25, format: v => v || '' },
-                'status': { label: 'QC sonuc', wch: 15, format: v => v || '' },
+                'status': { label: 'Durum', wch: 15, format: v => v || '' },
                 'qcApprover': { label: 'QC Onaylayan', wch: 14, format: v => v || '' },
                 'lastModifiedBy': { label: 'De?i?tiren', wch: 10, format: v => v || '' }
             };
