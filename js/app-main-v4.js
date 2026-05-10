@@ -778,11 +778,6 @@
                 ordersFileUploadBtn.style.display = isAdmin() ? 'inline-flex' : 'none';
             }
 
-            const ordersBulkSalesLineRequestBtn = document.getElementById('ordersBulkSalesLineRequestBtn');
-            if (ordersBulkSalesLineRequestBtn) {
-                ordersBulkSalesLineRequestBtn.style.display = isAdmin() ? 'inline-flex' : 'none';
-            }
-
             const clearProductTreeBtn = document.getElementById('clearPTBtn');
             if (clearProductTreeBtn) {
                 clearProductTreeBtn.style.display = isAdmin() ? '' : 'none';
@@ -2986,26 +2981,6 @@
         }
         window.resetRequestsFromSalesLine = resetRequestsFromSalesLine;
 
-        function openBulkSalesLineRequestsFromOrders() {
-            if (!isAdmin()) {
-                showToast('Bu işlem sadece admin hesabı tarafından kullanılabilir.', 'warning');
-                return;
-            }
-
-            const frame = document.getElementById('salesLinesFrame');
-            const bulkFn = frame?.contentWindow?.bulkPassSalesLineRequestsByWeek;
-            if (typeof bulkFn === 'function') {
-                bulkFn();
-                return;
-            }
-
-            if (typeof switchTab === 'function') {
-                switchTab('sales-lines');
-            }
-            showToast('Satış satırları ekranı hazırlanıyor. Yüklendikten sonra Toplu Talep Geç butonuna tekrar basın.', 'info');
-        }
-        window.openBulkSalesLineRequestsFromOrders = openBulkSalesLineRequestsFromOrders;
-
         let syncPayloadToOrdersPromise = null;
 
         async function syncSalesLinesPayloadToOrders(payload, options = {}) {
@@ -5036,17 +5011,19 @@
             const file = input.files[0];
             if (!file) return;
 
+            const useExcelWeek = input?.dataset?.useExcelWeek === 'true';
             // Hafta seçimi mantığı
-            let targetWeek = new Date().getWeek();
-            if (typeof selectedWeekFilter !== 'undefined' && selectedWeekFilter !== null) {
+            let targetWeek = null;
+            if (!useExcelWeek && typeof selectedWeekFilter !== 'undefined' && selectedWeekFilter !== null) {
                 targetWeek = selectedWeekFilter;
-            } else {
+            } else if (!useExcelWeek) {
+                targetWeek = new Date().getWeek();
                 const wInput = prompt('Excel verileri hangi haftaya eklensin? (Boş: Mevcut Hafta)', targetWeek);
                 if (wInput === null) { console.log('İptal edildi'); input.value = ''; return; } // Cancel
                 if (wInput) targetWeek = parseInt(wInput);
             }
 
-            showLoading('Excel Okunuyor... (Hafta: ' + targetWeek + ')');
+            showLoading(useExcelWeek ? 'Excel Okunuyor...' : 'Excel Okunuyor... (Hafta: ' + targetWeek + ')');
 
             // Small delay to allow UI to render overlay
             setTimeout(async () => {
@@ -5095,6 +5072,9 @@
                     // Normalize keys
                     const rowLower = {};
                     Object.keys(row).forEach(k => rowLower[k.trim().toLowerCase()] = row[k]);
+                    const rowWeek = input?.dataset?.useExcelWeek === 'true'
+                        ? getExcelRowWeek(rowLower, targetWeek)
+                        : (targetWeek || new Date().getWeek());
 
                     // Sipariş numarasını sütun adına göre değil, içeriğine göre bul
                     // Tüm sütun değerlerini tara, "STS" ile başlayanı sipariş numarası olarak al
@@ -5120,16 +5100,20 @@
 
                     const orderQty = parseFloat(qtyRaw) || 0;
 
-                    if (!aggregatedData[catalogNo]) {
-                        aggregatedData[catalogNo] = {
+                    const aggregateKey = `${rowWeek || ''}::${catalogNo}`;
+                    if (!aggregatedData[aggregateKey]) {
+                        aggregatedData[aggregateKey] = {
                             qty: 0,
                             orderNos: new Set(),
-                            originalRow: row
+                            originalRow: row,
+                            catalogNo,
+                            weekNumber: rowWeek
                         };
                     }
 
-                    aggregatedData[catalogNo].qty += orderQty;
-                    if (orderNo) aggregatedData[catalogNo].orderNos.add(orderNo);
+                    aggregatedData[aggregateKey].qty += orderQty;
+                    if (orderNo) aggregatedData[aggregateKey].orderNos.add(orderNo);
+                    if (!aggregatedData[aggregateKey].weekNumber && rowWeek) aggregatedData[aggregateKey].weekNumber = rowWeek;
                 });
 
                 let addedCount = 0;
@@ -5142,12 +5126,14 @@
                 }
 
                 // PHASE 1: Expand catalog numbers to components, track unmatched
-                // componentMap: materialNo -> { qty, orderNos, catalogNos, rxnName, format }
+                // componentMap: week+materialNo -> { qty, orderNos, catalogNos, rxnName, format }
                 const componentMap = {};
                 const unmatchedProducts = [];
 
-                catalogKeys.forEach(catNo => {
-                    const item = aggregatedData[catNo];
+                catalogKeys.forEach(aggregateKey => {
+                    const item = aggregatedData[aggregateKey];
+                    const catNo = item.catalogNo;
+                    const weekNumber = item.weekNumber || targetWeek || new Date().getWeek();
                     const totalQty = item.qty;
                     if (totalQty <= 0) return;
 
@@ -5166,7 +5152,8 @@
                         unmatchedProducts.push({
                             catalogNo: catNo,
                             orderNo: combinedOrderNo,
-                            quantity: totalQty
+                            quantity: totalQty,
+                            weekNumber
                         });
                         unmatchedCount++;
                         return;
@@ -5177,27 +5164,30 @@
                     // Expand to components and group by materialNo (YM)
                     components.forEach(comp => {
                         const matNo = comp.materialNo || catNo;
+                        const componentKey = `${weekNumber || ''}::${matNo}`;
                         const compQty = Math.ceil(totalQty * (comp.multiplier || 1));
 
-                        if (!componentMap[matNo]) {
-                            componentMap[matNo] = {
+                        if (!componentMap[componentKey]) {
+                            componentMap[componentKey] = {
                                 qty: 0,
                                 orderNos: new Set(),
                                 catalogNos: new Set(),
+                                materialNo: matNo,
                                 rxnName: comp.rxnName,
-                                format: normalizeOrderFormat(comp.format)
+                                format: normalizeOrderFormat(comp.format),
+                                weekNumber
                             };
                         }
 
-                        componentMap[matNo].qty += compQty;
-                        orderNosArr.forEach(o => componentMap[matNo].orderNos.add(o));
-                        componentMap[matNo].catalogNos.add(catNo);
+                        componentMap[componentKey].qty += compQty;
+                        orderNosArr.forEach(o => componentMap[componentKey].orderNos.add(o));
+                        componentMap[componentKey].catalogNos.add(catNo);
                     });
                 });
 
                 // PHASE 2: Create single order entry per unique materialNo (YM)
-                Object.keys(componentMap).forEach(matNo => {
-                    const comp = componentMap[matNo];
+                Object.keys(componentMap).forEach(componentKey => {
+                    const comp = componentMap[componentKey];
                     const combinedOrderNo = Array.from(comp.orderNos).filter(Boolean).join(', ');
                     const combinedCatalogNo = Array.from(comp.catalogNos).filter(Boolean).join(', ');
 
@@ -5206,11 +5196,9 @@
                         orderNo: combinedOrderNo,
                         quantity: comp.qty,
                         rxnName: comp.rxnName,
-                        materialNo: matNo,
-                        rxnName: comp.rxnName,
-                        materialNo: matNo,
+                        materialNo: comp.materialNo,
                         format: comp.format,
-                        weekNumber: targetWeek
+                        weekNumber: comp.weekNumber || targetWeek || new Date().getWeek()
                     });
                     addedCount++;
                 });
@@ -5224,7 +5212,7 @@
                         rxnName: '',
                         materialNo: '',
                         format: '',
-                        weekNumber: targetWeek,
+                        weekNumber: item.weekNumber || targetWeek || new Date().getWeek(),
                         requesterNote: 'Karşılığı olmayan ürün'
                     });
                     addedCount++;
@@ -5249,6 +5237,18 @@
 
                 hideLoading();
             }, 50);
+        }
+
+        function getExcelRowWeek(rowLower, fallbackWeek = null) {
+            const rawWeek = rowLower['hafta']
+                ?? rowLower['hafta no']
+                ?? rowLower['hafta numarası']
+                ?? rowLower['hafta numarasi']
+                ?? rowLower['week']
+                ?? rowLower['week no'];
+            const weekMatch = String(rawWeek ?? '').match(/\d+/);
+            if (weekMatch) return parseInt(weekMatch[0], 10);
+            return fallbackWeek || new Date().getWeek();
         }
 
         function buildDeterministicOrderId(data) {
