@@ -3993,7 +3993,7 @@
             // Note: index in DOM depends on whether first col is empty. 
             // In renderTableHeader we have an empty th first, let's verify renderTableHeader logic
 
-            const ths = document.querySelectorAll('.excel-table th');
+            const ths = document.querySelectorAll('#orders .excel-table th');
             // first th is empty icon col, so index + 1
             const targetTh = ths[resizingColIndex + 1];
             if (targetTh) {
@@ -4010,7 +4010,7 @@
             document.removeEventListener('mouseup', stopResize);
 
             // Clean up visual class
-            const ths = document.querySelectorAll('.excel-table th');
+            const ths = document.querySelectorAll('#orders .excel-table th');
             if (ths[resizingColIndex + 1]) {
                 const resizer = ths[resizingColIndex + 1].querySelector('.resizer');
                 if (resizer) resizer.classList.remove('resizing');

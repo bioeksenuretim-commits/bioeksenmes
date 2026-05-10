@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/css/modules.css">
-    <link rel="stylesheet" href="/css/app-main.css?v=20260510-orders-import-table">
+    <link rel="stylesheet" href="/css/app-main.css?v=20260510-orders-sales-lines-ux">
 
     <script defer src="/js/excel-loader.js?v=20260505-performance"></script>
 
@@ -562,46 +562,46 @@
             </div>
 
             <!-- View Tabs -->
-            <div class="orders-view-switcher" id="ordersViewSwitcher">
-                <button type="button" class="orders-view-btn active" data-orders-view="orders" onclick="switchTab('orders')">Tümü</button>
-                <button type="button" class="orders-view-btn" data-orders-view="urgent" onclick="switchTab('urgent')">Acil beklenen</button>
-                <button type="button" class="orders-view-btn" data-orders-view="vcap" onclick="switchTab('vcap')">vCAP</button>
-                <button type="button" class="orders-view-btn" data-orders-view="liyofilize" onclick="switchTab('liyofilize')">Liyofilize</button>
-                <button type="button" class="orders-view-btn" data-orders-view="tube" onclick="switchTab('tube')">Tüp format</button>
-                <button type="button" class="orders-view-btn" data-orders-view="unmatched" onclick="switchTab('unmatched')">Karşılığı olmayan</button>
+            <div class="orders-view-switcher dashboard-actions" id="ordersViewSwitcher">
+                <button type="button" class="orders-view-btn btn btn-sm active" data-orders-view="orders" onclick="switchTab('orders')">Tümü</button>
+                <button type="button" class="orders-view-btn btn btn-sm" data-orders-view="urgent" onclick="switchTab('urgent')">Acil beklenen</button>
+                <button type="button" class="orders-view-btn btn btn-sm" data-orders-view="vcap" onclick="switchTab('vcap')">vCAP</button>
+                <button type="button" class="orders-view-btn btn btn-sm" data-orders-view="liyofilize" onclick="switchTab('liyofilize')">Liyofilize</button>
+                <button type="button" class="orders-view-btn btn btn-sm" data-orders-view="tube" onclick="switchTab('tube')">Tüp format</button>
+                <button type="button" class="orders-view-btn btn btn-sm" data-orders-view="unmatched" onclick="switchTab('unmatched')">Karşılığı olmayan</button>
             </div>
 
             <!-- Toolbar -->
-            <div class="orders-toolbar">
-                <div class="orders-toolbar-left">
-                    <input type="text" id="globalSearch" class="orders-toolbar-search" placeholder="Ara..." oninput="applyRequestFilters()">
-                    <select class="orders-toolbar-select" id="ordersWeekDropdown" onchange="filterByWeek(this.value ? parseInt(this.value) : null)">
+            <div class="orders-toolbar toolbar">
+                <div class="orders-toolbar-left toolbar-left">
+                    <input type="text" id="globalSearch" class="orders-toolbar-search search-input" placeholder="Ara..." oninput="applyRequestFilters()">
+                    <select class="orders-toolbar-select filter-select" id="ordersWeekDropdown" onchange="filterByWeek(this.value ? parseInt(this.value) : null)">
                         <option value="">Tüm Haftalar</option>
                     </select>
-                    <button class="orders-toolbar-btn" onclick="resetWeekSelection()" title="Filtreleri temizle">
+                    <button class="orders-toolbar-btn btn btn-sm" onclick="resetWeekSelection()" title="Filtreleri temizle">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M6 6l1.5 14h9L18 6"/></svg>
                         Temizle
                     </button>
                 </div>
-                <div class="orders-toolbar-right">
-                    <span class="orders-result-count" id="ordersResultCount"></span>
+                <div class="orders-toolbar-right toolbar-right">
+                    <span class="orders-result-count result-count" id="ordersResultCount"></span>
                     <input type="file" id="ordersExcelUploadInput" accept=".xlsx, .xls" data-use-excel-week="true" style="display: none;"
                         onchange="handleExcelUpload(this)">
-                    <button class="orders-toolbar-btn" id="ordersFileUploadBtn" onclick="document.getElementById('ordersExcelUploadInput').click()" style="display:none;">
+                    <button class="orders-toolbar-btn btn btn-sm btn-primary" id="ordersFileUploadBtn" onclick="document.getElementById('ordersExcelUploadInput').click()" style="display:none;">
                         Dosya Yükle
                     </button>
-                    <button class="orders-toolbar-btn" onclick="exportToExcel()">
+                    <button class="orders-toolbar-btn btn btn-sm" onclick="exportToExcel()">
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                         Excel
                     </button>
-                    <button class="orders-toolbar-btn" onclick="addManualRequestRow()">Manuel Talep Geç</button>
-                    <button class="orders-toolbar-btn orders-toolbar-btn-danger" id="ordersResetBtn" onclick="deleteAllOrders()">Sıfırla</button>
+                    <button class="orders-toolbar-btn btn btn-sm" onclick="addManualRequestRow()">Manuel Talep Geç</button>
+                    <button class="orders-toolbar-btn orders-toolbar-btn-danger btn btn-sm btn-danger" id="ordersResetBtn" onclick="deleteAllOrders()">Sıfırla</button>
                 </div>
             </div>
 
             <!-- Table -->
-            <div class="orders-table-wrap">
-                <div class="orders-table-scroll table-container">
+            <div class="orders-table-wrap table-wrap" id="ordersTableSection">
+                <div class="orders-table-scroll table-container table-scroll">
                     <table class="data-table excel-table">
                         <colgroup id="ordersTableColGroup"></colgroup>
                         <thead>
@@ -1154,6 +1154,6 @@
     <div class="toast-container" id="toastContainer"></div>
 
     <script defer src="/js/orders-renderer-v1.js?v=20260508-performance-split"></script>
-    <script defer src="/js/app-main-v4.js?v=20260510-orders-import-table"></script>
+    <script defer src="/js/app-main-v4.js?v=20260510-orders-sales-lines-ux"></script>
 </body>
 </html>
