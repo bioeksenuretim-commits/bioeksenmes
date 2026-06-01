@@ -2006,7 +2006,7 @@
                 }
                 syncSalesLinesPermissionsToFrame();
             };
-    const salesLinesVersion = '20260513-conflicts';
+    const salesLinesVersion = '20260601-sales-lines-sync-guard';
     frame.src = `./sales-lines.html?v=${salesLinesVersion}${isTestLocalSession() ? '&testLocal=1' : ''}`;
             frame.dataset.embeddedReady = 'true';
         }
