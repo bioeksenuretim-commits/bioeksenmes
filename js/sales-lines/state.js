@@ -1247,6 +1247,19 @@ async function confirmBulkPassSalesLineRequests() {
     showToast(`${week}. hafta toplu talep geçme tamamlandı: ${successCount} başarılı${skippedCount ? `, ${skippedCount} atlandı` : ''}.`, successCount ? 'success' : 'warning');
 }
 
+function buildSalesLinesRowsMetaSignature(rows = []) {
+    if (!Array.isArray(rows)) return '';
+
+    return rows.map(row => {
+        const id = String(row?._id || row?.id || '');
+        const sync = row?._sync && typeof row._sync === 'object' ? row._sync : {};
+        const version = String(sync.version || row?._rowVersion || '');
+        const updatedAt = String(sync.updatedAt || row?._rowUpdatedAt || '');
+        const updatedBy = String(sync.updatedByUid || row?._rowUpdatedByUid || sync.updatedByParaf || row?._rowUpdatedBy || '');
+        return `${id}:${version}:${updatedAt}:${updatedBy}`;
+    }).join('|');
+}
+
 function getSalesLinesPayloadSignature(payload) {
     if (!payload) return '';
 
@@ -1292,7 +1305,8 @@ function getSalesLinesPayloadSignature(payload) {
             source: meta.source || '',
             sourceFile: meta.sourceFile || '',
             reset: !!meta.reset,
-            fullSync: !!meta.fullSync
+            fullSync: !!meta.fullSync,
+            rowsMeta: buildSalesLinesRowsMetaSignature(payload.allOrders)
         });
     } catch (error) {
         console.warn('Sales lines signature üretilemedi:', error);
