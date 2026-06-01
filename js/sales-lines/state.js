@@ -2012,6 +2012,9 @@ async function saveSalesLinesState(meta = {}, options = {}) {
         const immediate = !!(options.immediate || meta.sourceFile);
         const saved = await scheduleSalesLinesCloudSave(payload, immediate);
         scheduledResolversForImmediate.forEach(resolve => resolve(saved));
+        if (!isSalesLinesCloudSaveSuccessful(saved)) {
+            return saved;
+        }
         const conflictIds = new Set(getSalesLineConflictIds(saved));
         changedRowIds.forEach(id => {
             if (!conflictIds.has(id)) pendingChangedSalesLineRowIds.delete(id);
