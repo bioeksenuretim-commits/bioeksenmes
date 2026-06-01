@@ -1430,7 +1430,24 @@ async function flushPendingSalesLinesPatches() {
     } finally {
         salesLinesPendingFlushInFlight = false;
     }
-}function isStorageQuotaError(error) {
+}
+
+window.readPendingSalesLinesPatches = readPendingSalesLinesPatches;
+window.writePendingSalesLinesPatches = writePendingSalesLinesPatches;
+window.queuePendingSalesLinesPatch = queuePendingSalesLinesPatch;
+window.flushPendingSalesLinesPatches = flushPendingSalesLinesPatches;
+
+try {
+    const parentWindow = getEmbeddedParentWindow();
+    if (parentWindow) {
+        parentWindow.readPendingSalesLinesPatches = readPendingSalesLinesPatches;
+        parentWindow.writePendingSalesLinesPatches = writePendingSalesLinesPatches;
+        parentWindow.queuePendingSalesLinesPatch = queuePendingSalesLinesPatch;
+        parentWindow.flushPendingSalesLinesPatches = flushPendingSalesLinesPatches;
+    }
+} catch (_) {}
+
+function isStorageQuotaError(error) {
     return error && (
         error.name === 'QuotaExceededError' ||
         error.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
