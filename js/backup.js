@@ -678,7 +678,7 @@ class BackupManager {
                             producerNote: row['Üretim Yapan Ekibin Notu'] || '',
                             team1Note: row['Ekip 1 Not'] || '',
                             team2Note: row['Ekip 2 Not'] || '',
-                            status: row['Durum'] || '-',
+                            status: String(row['Durum'] || '').trim() || '-',
                             producer: row['Üretici'] || row['Üreten'] || '',
                             qcApprover: row['QC Onaylayan'] || row['QC Onay'] || '',
                             createdAt: new Date().toISOString(),

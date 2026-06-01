@@ -77,7 +77,7 @@ class AdvancedFilterManager {
         // Durum filtresi
         if (this.filters.statuses.length > 0) {
             filtered = filtered.filter(order =>
-                this.filters.statuses.includes(order.status)
+                this.filters.statuses.includes(this.normalizeStatus(order.status))
             );
         }
 
@@ -186,11 +186,11 @@ class AdvancedFilterManager {
         try {
             for (const orderId of this.selectedRows) {
                 if (typeof window.updateOrder === 'function') {
-                    await window.updateOrder(orderId, { status: newStatus });
+                    await window.updateOrder(orderId, { status: this.normalizeStatus(newStatus) });
                 } else {
                     const order = await storage.getById(orderId);
                     if (order) {
-                        order.status = newStatus;
+                        order.status = this.normalizeStatus(newStatus);
                         await storage.save(order);
                     }
                 }
@@ -274,15 +274,17 @@ class AdvancedFilterManager {
                         <label>Durum</label>
                         <select class="filter-select" id="statusFilter" multiple size="3"
                             onchange="advancedFilters.handleMultiSelectChange('statuses', this)">
-                            <option value="-">- (İşlem Bekliyor)</option>
-                            <option value="QC Bekliyor">QC Bekliyor</option>
-                            <option value="Teslim Edildi">Teslim Edildi</option>
-                            <option value="QC tekrarlanacak">QC Tekrarlanacak</option>
-                            <option value="İmha edilecek">İmha Edilecek</option>
-                            <option value="QC GİDECEK">QC Gidecek</option>
-                            <option value="Ürün Lojistikte">Ürün Lojistikte</option>
-                            <option value="Ürün Çıktı">Ürün Çıktı</option>
-                            <option value="Ürün Parçalı Çıktı">Ürün Parçalı Çıktı</option>
+                            <option value="Ürün İşlem Bekliyor">Ürün İşlem Bekliyor</option>
+                            <option value="Ürün Oligo Bekliyor">Ürün Oligo Bekliyor</option>
+                            <option value="Ürün Planlandı">Ürün Planlandı</option>
+                            <option value="Ürün Dağıtıldı">Ürün Dağıtıldı</option>
+                            <option value="Ürün QC ye gitti">Ürün QC ye gitti</option>
+                            <option value="Ürün QC tekrarına gitti">Ürün QC tekrarına gitti</option>
+                            <option value="Ürün QC den Geçmedi">Ürün QC den Geçmedi</option>
+                            <option value="Ürün Revizyon bekliyor">Ürün Revizyon bekliyor</option>
+                            <option value="Ürün Etiketlendi">Ürün Etiketlendi</option>
+                            <option value="Ürün Teslim Edildi">Ürün Teslim Edildi</option>
+                            <option value="Ürün İptal Edildi">Ürün İptal Edildi</option>
                         </select>
                     </div>
 
@@ -360,15 +362,17 @@ class AdvancedFilterManager {
                 <div class="bulk-buttons">
                     <select class="bulk-status-select" id="bulkStatusSelect">
                         <option value="">Durum değiştir...</option>
-                        <option value="-">- (İşlem Bekliyor)</option>
-                        <option value="QC Bekliyor">QC Bekliyor</option>
-                        <option value="Teslim Edildi">Teslim Edildi</option>
-                        <option value="QC tekrarlanacak">QC Tekrarlanacak</option>
-                        <option value="İmha edilecek">İmha Edilecek</option>
-                        <option value="QC GİDECEK">QC Gidecek</option>
-                        <option value="Ürün Lojistikte">Ürün Lojistikte</option>
-                        <option value="Ürün Çıktı">Ürün Çıktı</option>
-                        <option value="Ürün Parçalı Çıktı">Ürün Parçalı Çıktı</option>
+                        <option value="Ürün İşlem Bekliyor">Ürün İşlem Bekliyor</option>
+                        <option value="Ürün Oligo Bekliyor">Ürün Oligo Bekliyor</option>
+                        <option value="Ürün Planlandı">Ürün Planlandı</option>
+                        <option value="Ürün Dağıtıldı">Ürün Dağıtıldı</option>
+                        <option value="Ürün QC ye gitti">Ürün QC ye gitti</option>
+                        <option value="Ürün QC tekrarına gitti">Ürün QC tekrarına gitti</option>
+                        <option value="Ürün QC den Geçmedi">Ürün QC den Geçmedi</option>
+                        <option value="Ürün Revizyon bekliyor">Ürün Revizyon bekliyor</option>
+                        <option value="Ürün Etiketlendi">Ürün Etiketlendi</option>
+                        <option value="Ürün Teslim Edildi">Ürün Teslim Edildi</option>
+                        <option value="Ürün İptal Edildi">Ürün İptal Edildi</option>
                     </select>
                     <button class="btn btn-primary btn-sm" onclick="advancedFilters.applyBulkStatus()">
                         Uygula

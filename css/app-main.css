@@ -1,4 +1,4 @@
-/* Extracted from index.html to keep markup focused on structure. */
+﻿/* Extracted from index.html to keep markup focused on structure. */
         :root {
             --bg-primary: #f9fafb;
             --bg-secondary: #ffffff;
@@ -482,23 +482,31 @@
 
         /* Status Row Colors - Minimal left indicator */
         .excel-table tr.row-Teslim-Edildi td:first-child { box-shadow: inset 2px 0 0 var(--success); }
-        .excel-table tr.row-QC-GİDECEK td:first-child { box-shadow: inset 2px 0 0 #7c3aed; }
-        .excel-table tr.row-İmha-edilecek td:first-child { box-shadow: inset 2px 0 0 var(--danger); }
-        .excel-table tr.row-QC-Geçti td:first-child { box-shadow: inset 2px 0 0 var(--info); }
+        .excel-table tr.row-QC-GÄ°DECEK td:first-child { box-shadow: inset 2px 0 0 #7c3aed; }
+        .excel-table tr.row-Ä°mha-edilecek td:first-child { box-shadow: inset 2px 0 0 var(--danger); }
+        .excel-table tr.row-QC-GeÃ§ti td:first-child { box-shadow: inset 2px 0 0 var(--info); }
         .excel-table tr.row-Etiketlendi td:first-child { box-shadow: inset 2px 0 0 #7c3aed; }
         .excel-table tr.row-QC-Bekliyor td:first-child { box-shadow: inset 2px 0 0 var(--warning); }
         .excel-table tr.row-QC-tekrarlanacak td:first-child { box-shadow: inset 2px 0 0 #2563eb; }
-        .excel-table tr.row-Dağıtıldı td:first-child { box-shadow: inset 2px 0 0 #ea580c; }
-        .excel-table tr.row-Ürün-Lojistikte td:first-child { box-shadow: inset 2px 0 0 #f59e0b; }
-        .excel-table tr.row-Ürün-Çıktı td:first-child { box-shadow: inset 2px 0 0 #0284c7; }
+        .excel-table tr.row-DaÄŸÄ±tÄ±ldÄ± td:first-child { box-shadow: inset 2px 0 0 #ea580c; }
+        .excel-table tr.row-ÃœrÃ¼n-Lojistikte td:first-child { box-shadow: inset 2px 0 0 #f59e0b; }
+        .excel-table tr.row-ÃœrÃ¼n-Ã‡Ä±ktÄ± td:first-child { box-shadow: inset 2px 0 0 #0284c7; }
 
         .row-Teslim-Edildi td, .row-Teslim-Edildi input, .row-Teslim-Edildi select { color: var(--success) !important; }
-        .row-Dağıtıldı td, .row-Dağıtıldı input, .row-Dağıtıldı select { color: #ea580c !important; }
-        .row-Ürün-Lojistikte td, .row-Ürün-Lojistikte input, .row-Ürün-Lojistikte select { color: #92400e !important; }
-        .row-Ürün-Çıktı td, .row-Ürün-Çıktı input, .row-Ürün-Çıktı select { color: #075985 !important; }
-        .row-İmha-edilecek td { color: var(--danger) !important; text-decoration: line-through; }
-        .excel-table tr.row-İptal-Edildi td:first-child { box-shadow: inset 2px 0 0 #9ca3af; }
-        .row-İptal-Edildi td { color: #9ca3af !important; text-decoration: line-through; }
+        .row-DaÄŸÄ±tÄ±ldÄ± td, .row-DaÄŸÄ±tÄ±ldÄ± input, .row-DaÄŸÄ±tÄ±ldÄ± select { color: #ea580c !important; }
+        .row-ÃœrÃ¼n-Lojistikte td, .row-ÃœrÃ¼n-Lojistikte input, .row-ÃœrÃ¼n-Lojistikte select { color: #92400e !important; }
+        .row-ÃœrÃ¼n-Ã‡Ä±ktÄ± td, .row-ÃœrÃ¼n-Ã‡Ä±ktÄ± input, .row-ÃœrÃ¼n-Ã‡Ä±ktÄ± select { color: #075985 !important; }
+        .row-Ä°mha-edilecek td { color: var(--danger) !important; text-decoration: line-through; }
+        .excel-table tr.row-Ä°ptal-Edildi td:first-child { box-shadow: inset 2px 0 0 #9ca3af; }
+        .row-Ä°ptal-Edildi td { color: #9ca3af !important; text-decoration: line-through; }
+        .excel-table tr[class*="row-ÃœrÃ¼n-Teslim-Edildi"] td:first-child { box-shadow: inset 2px 0 0 var(--success); }
+        .excel-table tr[class*="row-ÃœrÃ¼n-DaÄŸÄ±tÄ±ldÄ±"] td:first-child { box-shadow: inset 2px 0 0 #ea580c; }
+        .excel-table tr[class*="row-ÃœrÃ¼n-QC-ye-gitti"] td:first-child { box-shadow: inset 2px 0 0 var(--warning); }
+        .excel-table tr[class*="row-ÃœrÃ¼n-QC-tekrarÄ±na-gitti"] td:first-child { box-shadow: inset 2px 0 0 #2563eb; }
+        .excel-table tr[class*="row-ÃœrÃ¼n-QC-den-GeÃ§medi"] td:first-child,
+        .excel-table tr[class*="row-ÃœrÃ¼n-Ä°ptal-Edildi"] td:first-child { box-shadow: inset 2px 0 0 var(--danger); }
+        .excel-table tr[class*="row-ÃœrÃ¼n-Etiketlendi"] td:first-child { box-shadow: inset 2px 0 0 #7c3aed; }
+        .excel-table tr[class*="row-ÃœrÃ¼n-Ä°ptal-Edildi"] td { color: #9ca3af !important; text-decoration: line-through; }
 
         .data-table tbody tr:hover, .excel-table tbody tr:hover {
             outline: 2px solid rgba(37, 99, 235, 0.18);
@@ -533,15 +541,25 @@
         .expand-icon-cell {
             text-align: center;
             cursor: pointer;
-            width: 44px !important;
-            min-width: 44px !important;
-            max-width: 44px !important;
+            width: 58px !important;
+            min-width: 58px !important;
+            max-width: 58px !important;
             color: var(--text-muted);
             transition: color 0.15s;
             vertical-align: middle !important;
             overflow: visible !important;
             padding: 4px 2px !important;
             position: relative;
+        }
+
+        .orders-row-checkbox,
+        .orders-select-all-checkbox {
+            width: 15px;
+            height: 15px;
+            margin: 0 4px 0 0;
+            vertical-align: middle;
+            cursor: pointer;
+            accent-color: #2563eb;
         }
 
         .expand-icon-cell:hover { color: var(--accent-primary); }
@@ -1739,6 +1757,12 @@
             color: #9f1239;
             background: #fff1f2;
             border-color: #fecdd3;
+            cursor: pointer;
+        }
+
+        .user-header-info .sync-status-badge.conflict:hover {
+            background: #ffe4e6;
+            border-color: #fda4af;
         }
 
         .user-header-info .logout-btn {
@@ -2629,7 +2653,7 @@
         #orders .excel-table th {
             background: #f8fafc;
             color: #64748b;
-            padding: 10px 14px;
+            padding: 8px 10px;
             font-size: 0.74rem;
             letter-spacing: 0.03em;
             border-bottom: 1px solid #e5e7eb;
@@ -2901,6 +2925,55 @@
 
         .orders-result-count { font-size: 13px; color: #6b7280; }
 
+        .orders-bulk-toolbar {
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 10px 12px;
+            margin: -6px 0 14px;
+            border: 1px solid #bfdbfe;
+            border-radius: 8px;
+            background: #eff6ff;
+            color: #1f2937;
+            flex-wrap: wrap;
+        }
+
+        .orders-bulk-summary,
+        .orders-bulk-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .orders-bulk-summary strong {
+            color: #1d4ed8;
+            font-size: 13px;
+            white-space: nowrap;
+        }
+
+        .orders-bulk-actions label {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            font-weight: 700;
+            color: #475569;
+            white-space: nowrap;
+        }
+
+        .orders-bulk-actions input,
+        .orders-bulk-actions select {
+            min-height: 32px;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            padding: 5px 8px;
+            background: #fff;
+            color: #111827;
+            font: inherit;
+            font-size: 12px;
+        }
+
         .orders-table-wrap {
             background: #fff;
             border: 1px solid #e5e7eb;
@@ -2913,7 +2986,8 @@
         }
 
         .orders-table-scroll {
-            overflow: auto;
+            overflow-y: auto;
+            overflow-x: auto;
             flex: 1;
             max-height: calc(100vh - 280px);
             min-height: 0;
@@ -2922,7 +2996,7 @@
         .orders-table-wrap .excel-table {
             table-layout: fixed;
             width: auto;
-            min-width: 0;
+            min-width: max-content;
             font-size: 13px;
             border-collapse: collapse;
             border-spacing: 0;
@@ -2931,30 +3005,32 @@
         .orders-table-wrap .excel-table th {
             background: #f9fafb;
             color: #6b7280;
-            padding: 10px 14px;
+            padding: 8px 10px;
             text-align: left;
             font-weight: 600;
-            font-size: 12px;
+            font-size: 11px;
             text-transform: uppercase;
-            letter-spacing: 0.03em;
-            white-space: nowrap;
+            letter-spacing: 0.01em;
+            white-space: normal;
             border-bottom: 1px solid #e5e7eb;
             position: sticky;
             top: 0;
             z-index: 10;
-            overflow: hidden;
-            text-overflow: ellipsis;
+            overflow: visible;
+            text-overflow: clip;
         }
 
         .orders-table-wrap .excel-table th:hover { color: #111827; }
 
         .orders-table-wrap .excel-table td {
-            padding: 9px 14px;
+            padding: 6px 8px;
             border-bottom: 1px solid #f3f4f6;
-            white-space: nowrap;
+            white-space: normal;
+            overflow-wrap: anywhere;
             color: #111827;
             overflow: hidden;
             text-overflow: ellipsis;
+            line-height: 1.25;
         }
 
         .orders-table-wrap .excel-table td.wrap-text {
@@ -2969,16 +3045,27 @@
 
         /* Row status colors - Sales lines style (full row background) */
         .orders-table-wrap .excel-table tr.row-Teslim-Edildi td { background: #d1fae5; color: #065f46; }
-        .orders-table-wrap .excel-table tr.row-QC-GİDECEK td { background: #e9d5ff; }
-        .orders-table-wrap .excel-table tr.row-İmha-edilecek td { background: #fee2e2; color: #991b1b; text-decoration: line-through; }
-        .orders-table-wrap .excel-table tr.row-QC-Geçti td { background: #dbeafe; }
+        .orders-table-wrap .excel-table tr.row-QC-GÄ°DECEK td { background: #e9d5ff; }
+        .orders-table-wrap .excel-table tr.row-Ä°mha-edilecek td { background: #fee2e2; color: #991b1b; text-decoration: line-through; }
+        .orders-table-wrap .excel-table tr.row-QC-GeÃ§ti td { background: #dbeafe; }
         .orders-table-wrap .excel-table tr.row-Etiketlendi td { background: #e9d5ff; }
         .orders-table-wrap .excel-table tr.row-QC-Bekliyor td { background: #fef3c7; }
         .orders-table-wrap .excel-table tr.row-QC-tekrarlanacak td { background: #dbeafe; }
-        .orders-table-wrap .excel-table tr.row-Dağıtıldı td { background: #ffedd5; color: #9a3412; }
-        .orders-table-wrap .excel-table tr.row-Ürün-Lojistikte td { background: #fef3c7; color: #92400e; }
-        .orders-table-wrap .excel-table tr.row-Ürün-Çıktı td { background: #e0f2fe; color: #075985; }
-        .orders-table-wrap .excel-table tr.row-İptal-Edildi td { background: #f3f4f6; color: #9ca3af; text-decoration: line-through; }
+        .orders-table-wrap .excel-table tr.row-DaÄŸÄ±tÄ±ldÄ± td { background: #ffedd5; color: #9a3412; }
+        .orders-table-wrap .excel-table tr.row-ÃœrÃ¼n-Lojistikte td { background: #fef3c7; color: #92400e; }
+        .orders-table-wrap .excel-table tr.row-ÃœrÃ¼n-Ã‡Ä±ktÄ± td { background: #e0f2fe; color: #075985; }
+        .orders-table-wrap .excel-table tr.row-Ä°ptal-Edildi td { background: #f3f4f6; color: #9ca3af; text-decoration: line-through; }
+        .orders-table-wrap .excel-table tr[class*="row-ÃœrÃ¼n-Ä°ÅŸlem-Bekliyor"] td { background: #ffffff; }
+        .orders-table-wrap .excel-table tr[class*="row-ÃœrÃ¼n-Oligo-Bekliyor"] td,
+        .orders-table-wrap .excel-table tr[class*="row-ÃœrÃ¼n-QC-ye-gitti"] td { background: #fef3c7; }
+        .orders-table-wrap .excel-table tr[class*="row-ÃœrÃ¼n-PlanlandÄ±"] td,
+        .orders-table-wrap .excel-table tr[class*="row-ÃœrÃ¼n-QC-tekrarÄ±na-gitti"] td,
+        .orders-table-wrap .excel-table tr[class*="row-ÃœrÃ¼n-Revizyon-bekliyor"] td { background: #dbeafe; }
+        .orders-table-wrap .excel-table tr[class*="row-ÃœrÃ¼n-DaÄŸÄ±tÄ±ldÄ±"] td { background: #ffedd5; color: #9a3412; }
+        .orders-table-wrap .excel-table tr[class*="row-ÃœrÃ¼n-QC-den-GeÃ§medi"] td,
+        .orders-table-wrap .excel-table tr[class*="row-ÃœrÃ¼n-Ä°ptal-Edildi"] td { background: #fee2e2; color: #991b1b; text-decoration: line-through; }
+        .orders-table-wrap .excel-table tr[class*="row-ÃœrÃ¼n-Etiketlendi"] td { background: #e9d5ff; }
+        .orders-table-wrap .excel-table tr[class*="row-ÃœrÃ¼n-Teslim-Edildi"] td { background: #d1fae5; color: #065f46; }
 
         /* Remove old box-shadow status indicators when inside new wrap */
         .orders-table-wrap .excel-table tr[class*="row-"] td:first-child { box-shadow: none; }
@@ -3143,14 +3230,15 @@
             flex: 1 1 auto;
             max-height: none;
             min-height: 0;
-            overflow: auto;
+            overflow-y: auto;
+            overflow-x: auto;
             border: 0;
             border-radius: 0;
         }
 
         body.workspace-locked #orders .excel-table {
             width: auto;
-            min-width: 0;
+            min-width: max-content;
             table-layout: fixed;
             border-collapse: collapse;
             font-size: 13px;
@@ -3171,7 +3259,7 @@
             user-select: none;
             cursor: grab;
             position: sticky;
-            overflow: hidden;
+            overflow: visible;
         }
 
         body.workspace-locked #orders .excel-table th.dragging {
@@ -3185,8 +3273,8 @@
         body.workspace-locked #orders .excel-table th .th-label {
             display: inline-block;
             max-width: calc(100% - 24px);
-            overflow: hidden;
-            text-overflow: ellipsis;
+            overflow: visible;
+            text-overflow: clip;
             vertical-align: middle;
             white-space: nowrap;
         }
@@ -3218,11 +3306,13 @@
         }
 
         body.workspace-locked #orders .excel-table td {
-            padding: 9px 14px;
+            padding: 6px 8px;
             border-bottom: 1px solid #f3f4f6;
             color: #111827;
             font-size: 13px;
-            line-height: 1.45;
+            line-height: 1.25;
+            white-space: normal;
+            overflow-wrap: anywhere;
         }
 
         body.workspace-locked #orders .inline-status {
@@ -3279,9 +3369,9 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            width: 24px;
-            height: 24px;
-            margin-left: 6px;
+            width: 20px;
+            height: 20px;
+            margin-left: 0;
             border-radius: 6px;
             color: #64748b;
             opacity: 0.95;
@@ -3292,6 +3382,7 @@
             z-index: 160;
             pointer-events: auto;
             vertical-align: middle;
+            flex: 0 0 20px;
         }
 
         #orders .filter-icon:hover {
@@ -3367,6 +3458,41 @@
             padding: 6px 0;
             flex: 1;
             background: #fff;
+        }
+
+        #ordersColumnPersonalizationList {
+            overflow-y: auto;
+            padding: 4px 0;
+        }
+
+        #ordersColumnPersonalizationList .personalization-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--border-light);
+        }
+
+        #ordersColumnPersonalizationList .personalization-item:hover {
+            background: var(--bg-hover);
+        }
+
+        #ordersColumnPersonalizationList .personalization-item input {
+            width: 16px;
+            height: 16px;
+        }
+
+        #ordersColumnPersonalizationList .personalization-item label {
+            cursor: pointer;
+            font-size: 0.9rem;
+            color: var(--text-primary);
+        }
+
+        .modal-actions-row {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            flex-wrap: wrap;
         }
 
         .orders-col-filter-popup .cfp-item {

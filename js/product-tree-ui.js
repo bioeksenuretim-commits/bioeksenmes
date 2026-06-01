@@ -312,7 +312,7 @@ function getProductTreeUnitOptions(selectedUnit = '') {
 }
 
 function getProductTreeFormatOptions(selectedFormat = '') {
-    const options = ['', 'vCAP', 'Liyofilize', 'Tup', 'Karma'];
+    const options = ['', 'Kutu', 'vCAP', 'Liyofilize', 'Tup', 'Karma'];
     return options.map(option => {
         const selected = option === selectedFormat ? 'selected' : '';
         const label = option || 'Format seçin';
@@ -433,6 +433,23 @@ function deleteManualProduct(catalogNo) {
     showToast(`${catalogNo} kaldırıldı`, 'info');
 }
 
+function getProductWellCount(product) {
+    const value = product?.['Kuyucuk Sayısı'] ?? product?.kuyucukSayisi ?? product?.wellCount;
+    if (value !== undefined && value !== null && String(value).trim() !== '') return value;
+
+    const componentValue = (product?.components || [])
+        .map(component => component?.['Kuyucuk Sayısı'] ?? component?.kuyucukSayisi ?? component?.wellCount)
+        .find(item => item !== undefined && item !== null && String(item).trim() !== '');
+
+    return componentValue || '-';
+}
+
+function getComponentWellCount(component, product) {
+    const value = component?.['Kuyucuk Sayısı'] ?? component?.kuyucukSayisi ?? component?.wellCount;
+    if (value !== undefined && value !== null && String(value).trim() !== '') return value;
+    return getProductWellCount(product);
+}
+
 function renderManualProductsList() {
     const list = document.getElementById('manualProductList');
     if (!list) return;
@@ -448,7 +465,7 @@ function renderManualProductsList() {
             <div>
                 <strong>${product.catalogNo}</strong>
                 <div class="section-subtle">${product.productDescription || ''}</div>
-                <div class="section-subtle">HM: ${product.hmNo} · Format: ${product.format} · ${product.components.length} bileşen</div>
+                <div class="section-subtle">HM: ${product.hmNo} · Format: ${product.format} · Kuyucuk Sayısı: ${getProductWellCount(product)} · ${product.components.length} bileşen</div>
                 <div class="section-subtle">${product.components.map(component => `${component.materialNo} / ${component.rxnName} / ${component.quantity}`).join(', ')}</div>
             </div>
             <button type="button" class="btn btn-secondary btn-sm" onclick="deleteManualProduct('${product.catalogNo}')">Sil</button>
@@ -578,7 +595,7 @@ function renderManagedProductsList() {
             <div>
                 <strong>${product.catalogNo}</strong>
                 <div class="section-subtle">${product.productDescription || ''}</div>
-                <div class="section-subtle">Kaynak: ${product.source === 'manual' ? 'Manuel' : 'Excel'} · HM: ${product.hmNo || '-'} · Format: ${product.format || '-'} · ${product.components.length} bileşen</div>
+                <div class="section-subtle">Kaynak: ${product.source === 'manual' ? 'Manuel' : 'Excel'} · HM: ${product.hmNo || '-'} · Format: ${product.format || '-'} · Kuyucuk Sayısı: ${getProductWellCount(product)} · ${product.components.length} bileşen</div>
                 <div class="table-container" style="margin-top: 10px;">
                     <table class="data-table">
                         <thead>
@@ -588,6 +605,7 @@ function renderManagedProductsList() {
                                 <th>Miktar</th>
                                 <th>Ölçü Birimi</th>
                                 <th>Format</th>
+                                <th>Kuyucuk Sayısı</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -598,6 +616,7 @@ function renderManagedProductsList() {
                                     <td>${component.quantity || 1}</td>
                                     <td>${component.unit || '-'}</td>
                                     <td>${component.format || '-'}</td>
+                                    <td>${getComponentWellCount(component, product)}</td>
                                 </tr>
                             `).join('')}
                         </tbody>

@@ -10,9 +10,9 @@
     <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/css/modules.css">
-    <link rel="stylesheet" href="/css/app-main.css?v=20260510-orders-header-controls">
+    <link rel="stylesheet" href="/css/app-main.css?v=20260531-orders-bulk-actions">
 
-    <script defer src="/js/excel-loader.js?v=20260505-performance"></script>
+    <script defer src="/js/excel-loader.js?v=20260513-local-vendor"></script>
 
     <!-- Firebase SDK -->
     <script defer src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -23,13 +23,13 @@
     <script defer src="/js/storage.js?v=20260508-tab-session"></script>
     <script defer src="/js/firebase-config.js?v=2"></script>
     <script defer src="/js/firebase-auth.js?v=20260508-tab-session"></script>
-    <script defer src="/js/firebase-sync-v4.js?v=20260510-orders-v2-backend"></script>
+    <script defer src="/js/firebase-sync-v4.js?v=20260531-product-tree-remote-first"></script>
     <script defer src="/js/pagination.js?v=2"></script>
-    <script defer src="/js/backup.js?v=20260510-status-title"></script>
+    <script defer src="/js/backup.js?v=20260510-blank-status-default"></script>
     <script defer src="/js/advanced-filters.js?v=2"></script>
-    <script defer src="/js/product-tree-excel-v4.js?v=20260505-performance"></script>
-    <script defer src="/js/product-tree-ui.js?v=20260505-performance"></script>
-    <script defer src="/js/init-v4.js?v=20260510-realtime-fallback"></script>
+    <script defer src="/js/product-tree-excel-v4.js?v=20260531-kuyucuk-data"></script>
+    <script defer src="/js/product-tree-ui.js?v=20260531-kuyucuk-data"></script>
+    <script defer src="/js/init-v4.js?v=20260531-sales-line-manual-requests"></script>
 </head>
 
 <body>
@@ -217,40 +217,40 @@
                 <div class="stat-card warning" onclick="switchTab('qc-view')" style="cursor: pointer;">
                     <div class="stat-icon">⏳</div>
                     <div class="stat-value" id="pendingQC">0</div>
-                    <div class="stat-label">QC Bekliyor (Detaylar)</div>
+                    <div class="stat-label">Ürün QC ye gitti (Detaylar)</div>
                 </div>
                 <div class="stat-card success" onclick="switchTab('teslim-view')" style="cursor: pointer;">
                     <div class="stat-icon">✅</div>
                     <div class="stat-value" id="delivered">0</div>
-                    <div class="stat-label">Teslim Edildi (Detaylar)</div>
+                    <div class="stat-label">Ürün Teslim Edildi (Detaylar)</div>
                 </div>
                 <div class="stat-card info" onclick="switchTab('islemde-view')" style="cursor: pointer;">
                     <div class="stat-icon">⚙️</div>
                     <div class="stat-value" id="inProduction">0</div>
-                    <div class="stat-label">İşlemde (Detaylar)</div>
+                    <div class="stat-label">Ürün İşlem Bekliyor (Detaylar)</div>
                 </div>
                 <div class="stat-card" onclick="switchTab('dagitilan-view')" style="cursor: pointer;">
                     <div class="stat-icon" style="background: rgba(99, 102, 241, 0.1); color: #6366f1;">
                         🚚
                     </div>
                     <div class="stat-value" id="distributed">0</div>
-                    <div class="stat-label">Dağıtılanlar (Detaylar)</div>
+                    <div class="stat-label">Ürün Dağıtıldı (Detaylar)</div>
                 </div>
 
-                <div class="stat-card" onclick="openFilteredView('QC tekrarlanacak')" style="cursor: pointer;">
+                <div class="stat-card" onclick="openFilteredView('Ürün QC tekrarına gitti')" style="cursor: pointer;">
                     <div class="stat-icon" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b;">
                         🔁
                     </div>
                     <div class="stat-value" id="qcRepeat">0</div>
-                    <div class="stat-label">QC Tekrar (Detaylar)</div>
+                    <div class="stat-label">Ürün QC tekrarına gitti (Detaylar)</div>
                 </div>
 
-                <div class="stat-card" onclick="openFilteredView('Etiketlendi')" style="cursor: pointer;">
+                <div class="stat-card" onclick="openFilteredView('Ürün Etiketlendi')" style="cursor: pointer;">
                     <div class="stat-icon" style="background: rgba(236, 72, 153, 0.1); color: #ec4899;">
                         Etiket
                     </div>
                     <div class="stat-value" id="labeled">0</div>
-                    <div class="stat-label">Etiketlendi (Detaylar)</div>
+                    <div class="stat-label">Ürün Etiketlendi (Detaylar)</div>
                 </div>
 
                 <div class="stat-card danger" onclick="switchTab('destroyed-view')" style="cursor: pointer;">
@@ -561,10 +561,11 @@
                 </div>
             </div>
 
-            <!-- View Tabs -->
             <div class="orders-view-switcher dashboard-actions" id="ordersViewSwitcher">
                 <button type="button" class="orders-view-btn btn btn-sm active" data-orders-view="orders" onclick="switchTab('orders')">Tümü</button>
                 <button type="button" class="orders-view-btn btn btn-sm" data-orders-view="urgent" onclick="switchTab('urgent')">Acil beklenen</button>
+                <button type="button" class="orders-view-btn btn btn-sm" data-orders-view="overdue" onclick="switchTab('overdue')">Gecikenler</button>
+                <button type="button" class="orders-view-btn btn btn-sm" data-orders-view="delivered" onclick="switchTab('delivered')">Teslim edilenler</button>
                 <button type="button" class="orders-view-btn btn btn-sm" data-orders-view="vcap" onclick="switchTab('vcap')">vCAP</button>
                 <button type="button" class="orders-view-btn btn btn-sm" data-orders-view="liyofilize" onclick="switchTab('liyofilize')">Liyofilize</button>
                 <button type="button" class="orders-view-btn btn btn-sm" data-orders-view="tube" onclick="switchTab('tube')">Tüp format</button>
@@ -574,7 +575,7 @@
             <!-- Toolbar -->
             <div class="orders-toolbar toolbar">
                 <div class="orders-toolbar-left toolbar-left">
-                    <input type="text" id="globalSearch" class="orders-toolbar-search search-input" placeholder="Ara..." oninput="applyRequestFilters()">
+                    <input type="text" id="globalSearch" class="orders-toolbar-search search-input" placeholder="Ara..." oninput="scheduleApplyRequestFilters()">
                     <select class="orders-toolbar-select filter-select" id="ordersWeekDropdown" onchange="filterByWeek(this.value ? parseInt(this.value) : null)">
                         <option value="">Tüm Haftalar</option>
                     </select>
@@ -594,8 +595,34 @@
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                         Excel
                     </button>
+                    <button class="orders-toolbar-btn btn btn-sm" onclick="openOrdersColumnPersonalizationModal()">Sütunlar</button>
                     <button class="orders-toolbar-btn btn btn-sm" onclick="addManualRequestRow()">Manuel Talep Geç</button>
                     <button class="orders-toolbar-btn orders-toolbar-btn-danger btn btn-sm btn-danger" id="ordersResetBtn" onclick="deleteAllOrders()">Sıfırla</button>
+                </div>
+            </div>
+
+            <div class="orders-bulk-toolbar" id="ordersBulkToolbar" style="display: none;">
+                <div class="orders-bulk-summary">
+                    <strong><span id="ordersBulkCount">0</span> satır seçili</strong>
+                    <button type="button" class="btn btn-sm" onclick="clearOrdersBulkSelection()">Temizle</button>
+                </div>
+                <div class="orders-bulk-actions">
+                    <label>
+                        Talep tarihi
+                        <input type="date" id="ordersBulkRequestDate">
+                    </label>
+                    <button type="button" class="btn btn-sm btn-primary" onclick="bulkUpdateSelectedOrders('requestDate')">Uygula</button>
+                    <label>
+                        Teslim tarihi
+                        <input type="date" id="ordersBulkDeliveryDate">
+                    </label>
+                    <button type="button" class="btn btn-sm btn-primary" onclick="bulkUpdateSelectedOrders('deliveryDate')">Uygula</button>
+                    <label>
+                        Durum
+                        <select id="ordersBulkStatus"></select>
+                    </label>
+                    <button type="button" class="btn btn-sm btn-primary" onclick="bulkUpdateSelectedOrders('status')">Uygula</button>
+                    <button type="button" class="btn btn-sm btn-danger" onclick="bulkDeleteSelectedOrders()">Seçilenleri Sil</button>
                 </div>
             </div>
 
@@ -612,49 +639,36 @@
                                 <th style="min-width: 100px;">
                                     <div>Talep Tarihi</div>
                                 </th>
-                                <th style="min-width: 80px;">
-                                    <div>Talep Eden</div>
-                                </th>
-                                <th style="min-width: 80px;">
-                                    <div>Katalog No</div>
+                                <th style="min-width: 100px;">
+                                    <div>Teslim Tarihi</div>
                                 </th>
                                 <th style="min-width: 80px;">
                                     <div>Madde No</div>
                                 </th>
                                 <th style="min-width: 120px;">
-                                    <div>Rxn Adı</div>
-                                </th>
-                                <th style="min-width: 100px;">
-                                    <div>Format</div>
-                                </th>
-                                <th style="min-width: 80px;">
-                                    <div>Talep Miktar</div>
-                                </th>
-                                <th style="min-width: 80px;">
-                                    <div>Üretilen Miktar</div>
-                                </th>
-                                <th style="min-width: 100px;">
-                                    <div>Sipariş No</div>
-                                </th>
-                                <th style="min-width: 100px;">
-                                    <div>Çıkış Tarihi</div>
+                                    <div>Ürün Açıklaması</div>
                                 </th>
                                 <th style="min-width: 150px;">
-                                    <div>Talep Eden Not</div>
+                                    <div>Talep Geçen Not</div>
+                                </th>
+                                <th style="min-width: 140px;">
+                                    <div>Planlanan Miktar (Rxn)</div>
+                                </th>
+                                <th style="min-width: 150px;">
+                                    <div>Gerçekleşen Miktar (Rxn)</div>
+                                </th>
+                                <th style="min-width: 170px;">
+                                    <div>Dağıtım Ekibinin Notu</div>
                                 </th>
                                 <th style="min-width: 100px;">
                                     <div>Lot No</div>
                                 </th>
-                                <th style="min-width: 150px;">
-                                    <div>Ekip 1 Not</div>
-                                </th>
-                                <th style="min-width: 150px;">
-                                    <div>Ekip 2 Not</div>
-                                </th>
                                 <th style="min-width: 140px;">
                                     <div>Durum</div>
                                 </th>
-                                <th style="min-width: 80px;">İşlemler</th>
+                                <th style="min-width: 100px;">
+                                    <div>QC Onaylayan</div>
+                                </th>
                             </tr>
                         </thead>
                         <tbody id="ordersTableBody">
@@ -1007,6 +1021,19 @@
     <div id="bulkActionsPanelContainer"></div>
 
     <!-- Detail Modal -->
+    <div class="modal-overlay" id="ordersColumnPersonalizationModal" onclick="if(event.target===this)closeOrdersColumnPersonalizationModal()">
+        <div class="modal">
+            <h2>Talepler Sütunları</h2>
+            <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px;">Talepler tablosunda görmek istediğiniz sütunları seçin.</p>
+            <div id="ordersColumnPersonalizationList" class="cfp-list" style="max-height:420px;border:1px solid var(--border-light);border-radius:8px;margin-bottom:12px;"></div>
+            <div class="modal-actions-row">
+                <button class="btn" type="button" onclick="selectAllOrdersPersonalizationColumns()">Tümünü seç</button>
+                <button class="btn" type="button" onclick="resetOrdersPersonalizationColumns()">Varsayılana dön</button>
+                <button class="btn btn-primary" type="button" onclick="saveOrdersPersonalizationColumns()">Kaydet</button>
+            </div>
+        </div>
+    </div>
+
     <div class="modal-overlay" id="detailModal">
         <div class="modal" style="max-width: 700px;">
             <div class="modal-header">
@@ -1103,16 +1130,17 @@
                     <div class="form-group">
                         <label class="form-label">Durum</label>
                         <select class="form-select" id="detailStatus">
-                            <option value="-">- (İşlem Bekliyor)</option>
-                            <option value="QC Bekliyor">QC Bekliyor</option>
-                            <option value="QC Geçti">QC Geçti</option>
-                            <option value="Teslim Edildi">Teslim Edildi</option>
-                            <option value="Etiketlendi">Etiketlendi</option>
-                            <option value="QC tekrarlanacak">QC Tekrarlanacak</option>
-                            <option value="İmha edilecek">İmha Edilecek</option>
-                            <option value="QC GİDECEK">QC Gidecek</option>
-                            <option value="Dağıtıldı">Dağıtıldı</option>
-                            <option value="İptal Edildi">İptal Edildi</option>
+                            <option value="Ürün İşlem Bekliyor">Ürün İşlem Bekliyor</option>
+                            <option value="Ürün Oligo Bekliyor">Ürün Oligo Bekliyor</option>
+                            <option value="Ürün Planlandı">Ürün Planlandı</option>
+                            <option value="Ürün Dağıtıldı">Ürün Dağıtıldı</option>
+                            <option value="Ürün QC ye gitti">Ürün QC ye gitti</option>
+                            <option value="Ürün QC tekrarına gitti">Ürün QC tekrarına gitti</option>
+                            <option value="Ürün QC den Geçmedi">Ürün QC den Geçmedi</option>
+                            <option value="Ürün Revizyon bekliyor">Ürün Revizyon bekliyor</option>
+                            <option value="Ürün Etiketlendi">Ürün Etiketlendi</option>
+                            <option value="Ürün Teslim Edildi">Ürün Teslim Edildi</option>
+                            <option value="Ürün İptal Edildi">Ürün İptal Edildi</option>
                         </select>
                     </div>
                 </div>
@@ -1153,7 +1181,7 @@
     <!-- Toast Container -->
     <div class="toast-container" id="toastContainer"></div>
 
-    <script defer src="/js/orders-renderer-v1.js?v=20260508-performance-split"></script>
-    <script defer src="/js/app-main-v4.js?v=20260510-orders-header-controls"></script>
+    <script defer src="/js/orders-renderer-v1.js?v=20260531-orders-bulk-actions"></script>
+    <script defer src="/js/app-main-v4.js?v=20260531-orders-bulk-actions"></script>
 </body>
 </html>

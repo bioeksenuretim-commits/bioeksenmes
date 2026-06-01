@@ -37,12 +37,16 @@ class ProductTreeExcelManager {
             product.productDescription,
             product.hmNo,
             product.format,
+            product['Kuyucuk Sayısı'],
+            product.kuyucukSayisi,
             product.source,
             ...(product.components || []).map(component => [
                 component.materialNo,
                 component.rxnName,
                 component.unit,
-                component.format
+                component.format,
+                component['Kuyucuk Sayısı'],
+                component.kuyucukSayisi
             ].join(' '))
         ].join(' '));
     }
@@ -52,9 +56,11 @@ class ProductTreeExcelManager {
     }
 
     normalizeManagedProduct(product) {
+        const productWellCount = product?.['Kuyucuk Sayısı'] ?? product?.kuyucukSayisi ?? product?.wellCount ?? '';
         const normalizedComponents = Array.isArray(product.components) ? product.components.map((component, index) => {
             const unit = String(component.unit || '').trim();
             const format = String(component.format || this.classifyUnitToFormat(unit) || '').trim();
+            const componentWellCount = component?.['Kuyucuk Sayısı'] ?? component?.kuyucukSayisi ?? component?.wellCount ?? productWellCount;
 
             return {
                 id: component.id || `managed-component-${Date.now()}-${index}`,
@@ -62,7 +68,8 @@ class ProductTreeExcelManager {
                 rxnName: String(component.rxnName || component.description || '').trim(),
                 quantity: Number(component.quantity) || Number(component.multiplier) || 1,
                 unit,
-                format
+                format,
+                'Kuyucuk Sayısı': componentWellCount
             };
         }) : [];
 
@@ -70,9 +77,11 @@ class ProductTreeExcelManager {
             catalogNo: String(product.catalogNo || product.productTreeNo || '').trim().toUpperCase(),
             productDescription: String(product.productDescription || product.description || '').trim(),
             hmNo: String(product.hmNo || '').trim().toUpperCase(),
-            format: String(product.format || this.inferProductFormat(normalizedComponents) || '').trim(),
+            format: this.resolveCatalogFormat(normalizedComponents, product.format),
             source: product.source === 'manual' ? 'manual' : 'excel',
             createdAt: product.createdAt || new Date().toISOString(),
+            'Kuyucuk Sayısı': productWellCount,
+            kuyucukSayisiKaynak: product.kuyucukSayisiKaynak || '',
             components: normalizedComponents
         };
 
@@ -106,10 +115,16 @@ class ProductTreeExcelManager {
     }
 
     inferProductFormat(components = []) {
+        if ((components || []).length >= 3) return 'Kutu';
         const formats = [...new Set((components || []).map(component => String(component.format || '').trim()).filter(Boolean))];
         if (formats.length === 1) return formats[0];
         if (formats.length > 1) return 'Karma';
         return '';
+    }
+
+    resolveCatalogFormat(components = [], fallbackFormat = '') {
+        if ((components || []).length >= 3) return 'Kutu';
+        return String(fallbackFormat || this.inferProductFormat(components) || '').trim();
     }
 
     setExcelComponents(components) {
@@ -333,6 +348,7 @@ class ProductTreeExcelManager {
             scrapPercent: 0,
             hmNo: product.hmNo || '',
             format: component.format || this.classifyUnitToFormat(component.unit) || product.format || '',
+            'Kuyucuk Sayısı': component['Kuyucuk Sayısı'] ?? product['Kuyucuk Sayısı'] ?? '',
             source: 'manual'
         };
     }
@@ -819,6 +835,8 @@ class ProductTreeExcelManager {
                     scrapPercent: 0,
                     hmNo: normalizedProduct.hmNo || '',
                     format: component.format || previousMeta.format || this.classifyUnitToFormat(resolvedUnit) || normalizedProduct.format || '',
+                    'Kuyucuk Sayısı': component['Kuyucuk Sayısı'] ?? normalizedProduct['Kuyucuk Sayısı'] ?? '',
+                    kuyucukSayisiKaynak: normalizedProduct.kuyucukSayisiKaynak || '',
                     source: 'excel'
                 });
             });
@@ -886,6 +904,8 @@ class ProductTreeExcelManager {
                     scrapPercent: 0,
                     hmNo: normalizedProduct.hmNo || '',
                     format: component.format || normalizedProduct.format || '',
+                    'Kuyucuk Sayısı': component['Kuyucuk Sayısı'] ?? normalizedProduct['Kuyucuk Sayısı'] ?? '',
+                    kuyucukSayisiKaynak: normalizedProduct.kuyucukSayisiKaynak || '',
                     source: 'excel'
                 });
             });
@@ -947,6 +967,7 @@ class ProductTreeExcelManager {
 
         const manualMap = new Map(this.manualProducts.map(product => [product.catalogNo, {
             ...product,
+            format: this.resolveCatalogFormat(product.components, product.format),
             source: 'manual',
             components: product.components.map(component => ({ ...component }))
         }]));
@@ -966,6 +987,8 @@ class ProductTreeExcelManager {
                         format: component.format || '',
                         source: 'excel',
                         createdAt: '',
+                        'Kuyucuk Sayısı': component['Kuyucuk Sayısı'] ?? '',
+                        kuyucukSayisiKaynak: component.kuyucukSayisiKaynak || '',
                         components: []
                     });
                 }
@@ -974,15 +997,23 @@ class ProductTreeExcelManager {
                 if (!product.productDescription && component.productDescription) product.productDescription = component.productDescription;
                 if (!product.hmNo && component.hmNo) product.hmNo = component.hmNo;
                 if (!product.format && component.format) product.format = component.format;
+                if ((product['Kuyucuk Sayısı'] === undefined || product['Kuyucuk Sayısı'] === null || String(product['Kuyucuk Sayısı']).trim() === '') && component['Kuyucuk Sayısı'] !== undefined) {
+                    product['Kuyucuk Sayısı'] = component['Kuyucuk Sayısı'];
+                }
                 product.components.push({
                     id: component.id,
                     materialNo: component.componentNo || '',
                     rxnName: component.description || '',
                     quantity: Number(component.quantity) || 1,
                     unit: component.unit || '',
-                    format: component.format || ''
+                    format: component.format || '',
+                    'Kuyucuk Sayısı': component['Kuyucuk Sayısı'] ?? ''
                 });
             });
+
+        excelMap.forEach(product => {
+            product.format = this.resolveCatalogFormat(product.components, product.format);
+        });
 
         this.managedProductsCache = [...excelMap.values(), ...manualMap.values()]
             .map(product => ({

@@ -100,6 +100,7 @@
                 renderUserHeader();
                 renderAdminPanel();
                 updateAdminOnlyElements();
+                loadOrdersAccountPreferences().catch(() => {});
                 refreshSyncStatusFromRuntime();
                 return true;
             } catch (_) {
@@ -140,7 +141,7 @@
                 syncing: 'Senkronlanıyor',
                 pending: 'Bekleyen değişiklik var',
                 offline: 'Bağlantı koptu',
-                conflict: 'Çakışma var'
+                conflict: 'Çakışmalar'
             };
             syncStatusState.state = state;
             syncStatusState.label = labels[state] || labels.offline;
@@ -170,6 +171,21 @@
                 : '';
             badge.textContent = syncStatusState.label;
             badge.title = [syncStatusState.label, syncStatusState.detail, timeText].filter(Boolean).join(' - ');
+            badge.onclick = null;
+            badge.onkeydown = null;
+            badge.removeAttribute('role');
+            badge.removeAttribute('tabindex');
+            if (syncStatusState.state === 'conflict') {
+                badge.setAttribute('role', 'button');
+                badge.setAttribute('tabindex', '0');
+                badge.onclick = openSalesLinesConflictPanel;
+                badge.onkeydown = (event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        openSalesLinesConflictPanel();
+                    }
+                };
+            }
         }
 
         function refreshSyncStatusFromRuntime() {
@@ -710,7 +726,7 @@
 
         function getSalesLinePreferencesRef() {
             if (!hasMatchingFirebaseAuthSession() || !currentUser?.uid || !isFirebaseAvailable()) return null;
-            return firebase.database().ref(`users/${currentUser.uid}/preferences/salesLines`);
+            return firebase.database().ref(`users/${currentUser.uid}/preferences/salesLinesColumns`);
         }
 
         function sanitizeSalesLinePreferences(preferences = {}) {
@@ -723,10 +739,16 @@
             const columnOrder = Array.isArray(preferences.columnOrder)
                 ? preferences.columnOrder.map(value => String(value || '').trim()).filter(Boolean)
                 : [];
+            const columnWidths = preferences.columnWidths && typeof preferences.columnWidths === 'object'
+                ? Object.fromEntries(Object.entries(preferences.columnWidths)
+                    .map(([key, value]) => [String(key || '').trim(), Number(value)])
+                    .filter(([key, value]) => key && Number.isFinite(value) && value > 0))
+                : {};
             return {
                 visibleColumns,
                 dashboardActions,
                 columnOrder,
+                columnWidths,
                 updatedAt: preferences.updatedAt || new Date().toISOString()
             };
         }
@@ -1005,6 +1027,7 @@
                             renderUserHeader();
                             renderAdminPanel();
                             updateAdminOnlyElements();
+                            loadOrdersAccountPreferences().catch(() => {});
                             refreshSyncStatusFromRuntime();
                             switchTab(canViewOrders() ? (localStorage.getItem('reaksiyon_active_tab') || 'dashboard') : 'sales-lines');
 
@@ -1088,6 +1111,82 @@
             var orders = [];
         }
 
+        function openSalesLinesConflictPanel() {
+            const frame = document.getElementById('salesLinesFrame');
+            if (frame && frame.contentWindow) {
+                frame.contentWindow.postMessage({ type: 'sales-lines-open-conflicts' }, '*');
+            }
+            switchTab('sales-lines');
+        }
+        window.openSalesLinesConflictPanel = openSalesLinesConflictPanel;
+
+        const ORDER_STATUS_OPTIONS = [
+            'Ürün İşlem Bekliyor',
+            'Ürün Oligo Bekliyor',
+            'Ürün Planlandı',
+            'Ürün Dağıtıldı',
+            'Ürün QC ye gitti',
+            'Ürün QC tekrarına gitti',
+            'Ürün QC den Geçmedi',
+            'Ürün Revizyon bekliyor',
+            'Ürün Etiketlendi',
+            'Ürün Teslim Edildi',
+            'Ürün İptal Edildi'
+        ];
+
+        function normalizeOrderStatus(value) {
+            const raw = String(value || '').trim();
+            if (!raw || raw === '-') return 'Ürün İşlem Bekliyor';
+            const key = raw.toLocaleLowerCase('tr');
+            const statusMap = {
+                'işlem bekliyor': 'Ürün İşlem Bekliyor',
+                'islem bekliyor': 'Ürün İşlem Bekliyor',
+                'ürün işlem bekliyor': 'Ürün İşlem Bekliyor',
+                'urun islem bekliyor': 'Ürün İşlem Bekliyor',
+                'oligo bekliyor': 'Ürün Oligo Bekliyor',
+                'ürün oligo bekliyor': 'Ürün Oligo Bekliyor',
+                'urun oligo bekliyor': 'Ürün Oligo Bekliyor',
+                'ürün planlandı': 'Ürün Planlandı',
+                'urun planlandi': 'Ürün Planlandı',
+                'dağıtıldı': 'Ürün Dağıtıldı',
+                'dagitildi': 'Ürün Dağıtıldı',
+                'ürün dağıtıldı': 'Ürün Dağıtıldı',
+                'urun dagitildi': 'Ürün Dağıtıldı',
+                'qc bekliyor': 'Ürün QC ye gitti',
+                'qc gidecek': 'Ürün QC ye gitti',
+                'ürün qc ye gitti': 'Ürün QC ye gitti',
+                'urun qc ye gitti': 'Ürün QC ye gitti',
+                'qc tekrarlanacak': 'Ürün QC tekrarına gitti',
+                'qc tekrar': 'Ürün QC tekrarına gitti',
+                'ürün qc tekrarına gitti': 'Ürün QC tekrarına gitti',
+                'urun qc tekrarina gitti': 'Ürün QC tekrarına gitti',
+                'ürün qc den geçmedi': 'Ürün QC den Geçmedi',
+                'urun qc den gecmedi': 'Ürün QC den Geçmedi',
+                'qc den geçmedi': 'Ürün QC den Geçmedi',
+                'qc den gecmedi': 'Ürün QC den Geçmedi',
+                'qc geçti': 'Ürün Etiketlendi',
+                'qc gecti': 'Ürün Etiketlendi',
+                'etiketlendi': 'Ürün Etiketlendi',
+                'ürün etiketlendi': 'Ürün Etiketlendi',
+                'urun etiketlendi': 'Ürün Etiketlendi',
+                'revizyon bekliyor': 'Ürün Revizyon bekliyor',
+                'ürün revizyon bekliyor': 'Ürün Revizyon bekliyor',
+                'urun revizyon bekliyor': 'Ürün Revizyon bekliyor',
+                'teslim edildi': 'Ürün Teslim Edildi',
+                'ürün teslim edildi': 'Ürün Teslim Edildi',
+                'urun teslim edildi': 'Ürün Teslim Edildi',
+                'iptal edildi': 'Ürün İptal Edildi',
+                'ürün iptal edildi': 'Ürün İptal Edildi',
+                'urun iptal edildi': 'Ürün İptal Edildi',
+                'imha edilecek': 'Ürün İptal Edildi'
+            };
+            return statusMap[key] || raw;
+        }
+
+        function isOrderStatus(order, expectedStatus) {
+            return normalizeOrderStatus(order?.status) === expectedStatus;
+        }
+
         // Column Configuration
         const defaultColumns = [
             { id: 'weekNumber', label: 'Hafta', width: '70px' },
@@ -1096,15 +1195,15 @@
             { id: 'rxnName', label: 'Ürün Açıklaması', width: '180px', bold: true, wrap: true },
             { id: 'format', label: 'Format', width: '90px', wrap: true },
             { id: 'requesterNote', label: 'Talep Geçen Not', width: '170px', wrap: true },
-            { id: 'quantity', label: 'Planlanan Miktar (Rack)', width: '135px', editable: true, wrap: true },
-            { id: 'plannedRxnQty', label: 'Planlanan Miktar (Rxn)', width: '135px', editable: true, wrap: true },
-            { id: 'plannedWellQty', label: 'Planlanan (well)', width: '120px', editable: true, wrap: true },
-            { id: 'producer', label: 'Sorumlu Kişi', width: '120px', wrap: true },
-            { id: 'plannedStartDate', label: 'Planlanan Başlangıç', width: '135px', type: 'date', wrap: true },
-            { id: 'plannedEndDate', label: 'Planlanan Bitiş', width: '125px', type: 'date', wrap: true },
-            { id: 'producedQty', label: 'Gerçekleşen Miktar (Rack)', width: '150px', editable: true, wrap: true },
-            { id: 'actualRxnQty', label: 'Gerçekleşen Miktar (Rxn)', width: '150px', editable: true, wrap: true },
-            { id: 'actualWellQty', label: 'Gerçekleşen Miktar (well)', width: '150px', editable: true, wrap: true },
+            { id: 'quantity', label: 'Planlanan Miktar (Rack)', width: '210px', editable: true, wrap: true },
+            { id: 'plannedRxnQty', label: 'Planlanan Miktar (Rxn)', width: '210px', editable: true, wrap: true },
+            { id: 'plannedWellQty', label: 'Planlanan (well)', width: '165px', editable: true, wrap: true },
+            { id: 'producer', label: 'Sorumlu Kişi', width: '145px', wrap: true },
+            { id: 'distributionNote', label: 'Dağıtım Ekibinin Notu', width: '190px', editable: true, wrap: true },
+            { id: 'plannedEndDate', label: 'Planlanan Bitiş', width: '170px', type: 'date', wrap: true },
+            { id: 'producedQty', label: 'Gerçekleşen Miktar (Rack)', width: '225px', editable: true, wrap: true },
+            { id: 'actualRxnQty', label: 'Gerçekleşen Miktar (Rxn)', width: '225px', editable: true, wrap: true },
+            { id: 'actualWellQty', label: 'Gerçekleşen Miktar (well)', width: '225px', editable: true, wrap: true },
             { id: 'productionOrderNo', label: 'SBUE No', width: '140px', wrap: true },
             { id: 'lotNo', label: 'Lot No', width: '160px', wrap: false },
             { id: 'status', label: 'Durum', width: '150px', type: 'status' },
@@ -1113,20 +1212,19 @@
 
         let currentColumns = JSON.parse(localStorage.getItem('reaksiyon_column_order')) || defaultColumns;
 
-        const ORDERS_COLUMN_SCHEMA_VERSION = '20260510-status-title';
+        const ORDERS_COLUMN_SCHEMA_VERSION = '20260531-orders-personalization';
+        const ORDERS_COLUMN_PREFS_LOCAL_KEY = 'reaksiyon_orders_column_prefs_v1';
         const storedOrdersColumnSchemaVersion = localStorage.getItem('reaksiyon_column_schema_version');
         const needsReorder = storedOrdersColumnSchemaVersion !== ORDERS_COLUMN_SCHEMA_VERSION;
 
         const weekCol = currentColumns.find(c => c.id === 'weekNumber');
-        const needsUpdate = weekCol && weekCol.width !== '70px';
+        const needsUpdate = !weekCol;
 
-        const hasNewColumn = currentColumns.some(c => c.id === 'productionOrderNo');
-        const hasProducerColumn = currentColumns.some(c => c.id === 'producer');
-        const hasCountryColumn = currentColumns.some(c => c.id === 'country');
-        const hasLegacyTeam1Column = currentColumns.some(c => c.id === 'team1Note');
-        const hasLegacyTeam2Column = currentColumns.some(c => c.id === 'team2Note');
+        const defaultColumnIds = new Set(defaultColumns.map(col => col.id));
+        const hasRequiredColumns = defaultColumns.every(def => currentColumns.some(col => col.id === def.id));
+        const hasRemovedColumns = currentColumns.some(col => !defaultColumnIds.has(col.id));
 
-        if (needsReorder || !hasNewColumn || needsUpdate || !hasProducerColumn || hasCountryColumn || hasLegacyTeam1Column || hasLegacyTeam2Column) {
+        if (needsReorder || needsUpdate || !hasRequiredColumns || hasRemovedColumns) {
             console.log('Sütun sırası güncelleniyor...');
             // Update logic: If new column missing OR width outdated OR order changed
             currentColumns = JSON.parse(JSON.stringify(defaultColumns)); // Deep copy reset
@@ -1145,6 +1243,127 @@
             localStorage.setItem('reaksiyon_column_order', JSON.stringify(currentColumns));
             localStorage.setItem('reaksiyon_column_schema_version', ORDERS_COLUMN_SCHEMA_VERSION);
         }
+
+        let ordersVisibleColumnSet = null;
+
+        function normalizeOrdersColumnIds(columns) {
+            if (!Array.isArray(columns)) return [];
+            const allowed = new Set(defaultColumns.map(col => col.id));
+            return columns.map(col => String(col || '').trim()).filter(col => allowed.has(col));
+        }
+
+        function normalizeOrdersColumnOrder(order) {
+            const requested = normalizeOrdersColumnIds(order);
+            const normalized = [];
+            requested.forEach(id => {
+                if (!normalized.includes(id)) normalized.push(id);
+            });
+            defaultColumns.forEach(col => {
+                if (!normalized.includes(col.id)) normalized.push(col.id);
+            });
+            return normalized;
+        }
+
+        function normalizeOrdersColumnWidths(widths) {
+            if (!widths || typeof widths !== 'object') return {};
+            const allowed = new Set(defaultColumns.map(col => col.id));
+            const normalized = {};
+            Object.entries(widths).forEach(([key, value]) => {
+                const id = String(key || '').trim();
+                const width = Math.max(50, Math.min(Number(value) || 0, 600));
+                if (allowed.has(id) && Number.isFinite(width) && width > 0) normalized[id] = width;
+            });
+            return normalized;
+        }
+
+        function getOrdersAccountPreferencesRef() {
+            if (!hasMatchingFirebaseAuthSession() || !currentUser?.uid || !isFirebaseAvailable()) return null;
+            return firebase.database().ref(`users/${currentUser.uid}/preferences/ordersColumns`);
+        }
+
+        function readLocalOrdersColumnPreferences() {
+            try {
+                const parsed = JSON.parse(localStorage.getItem(ORDERS_COLUMN_PREFS_LOCAL_KEY) || 'null');
+                return parsed && typeof parsed === 'object' ? parsed : null;
+            } catch (_) {
+                return null;
+            }
+        }
+
+        function writeLocalOrdersColumnPreferences(preferences) {
+            if (!preferences) {
+                localStorage.removeItem(ORDERS_COLUMN_PREFS_LOCAL_KEY);
+                return;
+            }
+            localStorage.setItem(ORDERS_COLUMN_PREFS_LOCAL_KEY, JSON.stringify({
+                visibleColumns: normalizeOrdersColumnIds(preferences.visibleColumns),
+                columnOrder: normalizeOrdersColumnOrder(preferences.columnOrder),
+                columnWidths: normalizeOrdersColumnWidths(preferences.columnWidths),
+                updatedAt: preferences.updatedAt || new Date().toISOString()
+            }));
+        }
+
+        function applyOrdersColumnPreferences(preferences) {
+            const order = normalizeOrdersColumnOrder(preferences?.columnOrder);
+            const visible = normalizeOrdersColumnIds(preferences?.visibleColumns);
+            const widths = normalizeOrdersColumnWidths(preferences?.columnWidths);
+            if (order.length > 0) {
+                const byId = new Map(currentColumns.map(col => [col.id, col]));
+                currentColumns = order.map(id => ({ ...(byId.get(id) || defaultColumns.find(col => col.id === id)) })).filter(Boolean);
+            }
+            Object.entries(widths).forEach(([id, width]) => {
+                const col = currentColumns.find(item => item.id === id);
+                if (col) col.width = `${width}px`;
+            });
+            ordersVisibleColumnSet = visible.length > 0 ? new Set(visible) : null;
+            localStorage.setItem('reaksiyon_column_order', JSON.stringify(currentColumns));
+            writeLocalOrdersColumnPreferences({
+                visibleColumns: visible.length > 0 ? visible : currentColumns.map(col => col.id),
+                columnOrder: currentColumns.map(col => col.id),
+                columnWidths: Object.fromEntries(currentColumns.map(col => [col.id, parseInt(String(col.width || '120px'), 10) || 120]))
+            });
+        }
+
+        function loadLocalOrdersColumnPreferences() {
+            const preferences = readLocalOrdersColumnPreferences();
+            if (preferences) applyOrdersColumnPreferences(preferences);
+        }
+
+        async function loadOrdersAccountPreferences() {
+            const ref = getOrdersAccountPreferencesRef();
+            if (!ref) return false;
+            try {
+                const snapshot = await ref.once('value');
+                const preferences = snapshot.val();
+                if (preferences && typeof preferences === 'object') {
+                    applyOrdersColumnPreferences(preferences);
+                    renderTableHeader();
+                    if (typeof renderOrders === 'function') renderOrders();
+                    return true;
+                }
+            } catch (error) {
+                console.warn('Talep sütun kişiselleştirmesi okunamadı:', error);
+            }
+            return false;
+        }
+
+        async function saveOrdersAccountPreferences(preferences) {
+            const ref = getOrdersAccountPreferencesRef();
+            if (!ref) return false;
+            if (preferences === null) {
+                await ref.remove();
+                return true;
+            }
+            await ref.set({
+                visibleColumns: normalizeOrdersColumnIds(preferences.visibleColumns),
+                columnOrder: normalizeOrdersColumnOrder(preferences.columnOrder),
+                columnWidths: normalizeOrdersColumnWidths(preferences.columnWidths),
+                updatedAt: preferences.updatedAt || new Date().toISOString()
+            });
+            return true;
+        }
+
+        loadLocalOrdersColumnPreferences();
 
         // Global State
         let selectedWeekFilter = null; // null = All weeks
@@ -1171,10 +1390,15 @@
             if (safe.length === 0) {
                 return JSON.parse(JSON.stringify(defaultColumns));
             }
-            return safe;
+            if (!ordersVisibleColumnSet || ordersVisibleColumnSet.size === 0) return safe;
+            const visible = safe.filter(col => ordersVisibleColumnSet.has(col.id));
+            return visible.length > 0 ? visible : safe;
         }
         let lastRemoteSalesLinesPayload = null;
         let lastAppliedSalesLinesPayloadSignature = '';
+        let lastPersistedSalesLinesPayloadTime = 0;
+        let lastPersistedSalesLinesPayloadSignature = '';
+        let lastPersistedSalesLinesPayloadRows = 0;
 
         function getSalesLinesPayloadSignature(payload) {
             if (!payload) return '';
@@ -1250,6 +1474,10 @@
         }
 
         function persistSalesLinesStorageMarker(payload) {
+            lastPersistedSalesLinesPayloadTime = getSalesLinesPayloadTime(payload);
+            lastPersistedSalesLinesPayloadSignature = getSalesLinesPayloadSignature(payload);
+            lastPersistedSalesLinesPayloadRows = getSalesLinesPayloadRowCount(payload);
+
             try {
                 localStorage.setItem(getSalesLinesStorageKey(), JSON.stringify(buildSalesLinesStorageMarker(payload)));
             } catch (error) {
@@ -1264,12 +1492,18 @@
             const incomingSignature = getSalesLinesPayloadSignature(payload);
             const storedPayload = readStoredSalesLinesPayload();
             const storedPayloadHasRows = Array.isArray(storedPayload?.allOrders);
-            const storedTime = storedPayloadHasRows ? getSalesLinesPayloadTime(storedPayload) : 0;
-            const storedSignature = storedPayloadHasRows ? getSalesLinesPayloadSignature(storedPayload) : '';
+            const storedTime = storedPayloadHasRows
+                ? getSalesLinesPayloadTime(storedPayload)
+                : lastPersistedSalesLinesPayloadTime;
+            const storedSignature = storedPayloadHasRows
+                ? getSalesLinesPayloadSignature(storedPayload)
+                : lastPersistedSalesLinesPayloadSignature;
             const pendingTime = getSalesLinesPayloadTime(pendingSalesLinesCloudPayload);
             const pendingSignature = getSalesLinesPayloadSignature(pendingSalesLinesCloudPayload);
             const incomingRows = getSalesLinesPayloadRowCount(payload);
-            const storedRows = getSalesLinesPayloadRowCount(storedPayload);
+            const storedRows = storedPayloadHasRows
+                ? getSalesLinesPayloadRowCount(storedPayload)
+                : (lastPersistedSalesLinesPayloadRows || getSalesLinesPayloadRowCount(storedPayload));
 
             if (incomingRows > 0 && storedRows === 0) return true;
 
@@ -1305,7 +1539,7 @@
         }
         window.applyRemoteSalesLinesPayload = applyRemoteSalesLinesPayload;
 
-        async function syncSalesLinesPayloadToCloud(payload, reason = 'sales_lines_iframe_update') {
+        async function syncSalesLinesPayloadToCloud(payload, reason = 'sales_lines_iframe_update', syncOptions = {}) {
             if (!payload) return false;
             if (isTestLocalSession()) return true;
             const payloadTime = getSalesLinesPayloadTime(payload);
@@ -1327,10 +1561,18 @@
                     if (userAuthoredPayload) {
                         persistSalesLinesStorageMarker(payload);
                     }
-                    await firebaseSync.syncSalesLinesPayload(payload, { reason });
+                    const syncResult = await firebaseSync.syncSalesLinesPayload(payload, { reason, ...syncOptions });
+                    if (syncResult && typeof syncResult === 'object' && Array.isArray(syncResult.conflicts) && syncResult.conflicts.length > 0) {
+                        setSyncStatus('conflict', `${syncResult.conflicts.length} satış satırı karar bekliyor.`);
+                        return syncResult;
+                    }
                     lastRemoteSalesLinesPayload = payload;
                     pendingSalesLinesCloudPayload = null;
-                    return true;
+                    Promise.resolve(cleanupLegacySalesLineOrdersFromPayload(payload, { persist: true })).finally(() => {
+                        renderSalesLinesSummary();
+                        renderDashboard();
+                    });
+                    return syncResult || true;
                 } catch (error) {
                     console.warn('Sales lines Firebase sync hatasi:', error);
                 }
@@ -1344,7 +1586,399 @@
             }, 400);
             return false;
         }
+        const REQUEST_SAVE_DEBOUNCE_MS = 800;
+        let scheduledRequestSaveTimer = null;
+        let scheduledRequestChangedIds = new Set();
+        let scheduledRequestDeletedIds = new Set();
+        let scheduledRequestRowBaseMeta = {};
+        let activeRequestEditBaseMeta = {};
+        let requestFilterDebounceTimer = null;
+        let selectedOrderIds = new Set();
+
+        function getOrderSyncMeta(order) {
+            if (typeof firebaseSync !== 'undefined' && firebaseSync && typeof firebaseSync.getOrderSyncMeta === 'function') {
+                return firebaseSync.getOrderSyncMeta(order);
+            }
+            const sync = order?._sync && typeof order._sync === 'object' ? order._sync : {};
+            return {
+                version: Number(sync.version || order?.version || 0) || 0,
+                updatedAt: String(sync.updatedAt || order?.updatedAt || order?.lastModifiedAt || ''),
+                updatedByUid: sync.updatedByUid || order?.updatedByUid || null,
+                updatedByParaf: sync.updatedByParaf || order?.updatedBy || order?.lastModifiedBy || ''
+            };
+        }
+
+        function getOrderHistoryLength(order) {
+            return Array.isArray(order?.changeHistory) ? order.changeHistory.length : 0;
+        }
+
+        function getOrderBaseMeta(order) {
+            return {
+                ...getOrderSyncMeta(order),
+                changeHistoryLength: getOrderHistoryLength(order)
+            };
+        }
+
+        function trimOrderHistoryToBase(orderId, baseMeta = {}) {
+            const order = orders.find(item => String(item.id) === String(orderId));
+            if (!order || !Array.isArray(order.changeHistory)) return;
+            const baseLength = Number(baseMeta.changeHistoryLength);
+            if (!Number.isFinite(baseLength) || baseLength < 0) return;
+            order.changeHistory = order.changeHistory.slice(0, baseLength);
+        }
+
+        function handleOrderSyncConflicts(conflicts = []) {
+            const incoming = Array.isArray(conflicts) ? conflicts : [];
+            if (incoming.length === 0) return;
+            incoming.forEach(conflict => {
+                const id = String(conflict?.id || '').trim();
+                if (id) trimOrderHistoryToBase(id, conflict.baseMeta || {});
+                if (id && conflict.remoteOrder && !conflict.remoteOrder.deleted) {
+                    const index = orders.findIndex(item => String(item.id) === id);
+                    if (index >= 0) orders[index] = { ...conflict.remoteOrder };
+                    else orders.push({ ...conflict.remoteOrder });
+                }
+            });
+            showToast(incoming.length === 1
+                ? 'Bu talep başka biri tarafından güncellendi. Değişikliğiniz kaydedilmedi.'
+                : `${incoming.length} talep başka kullanıcılar tarafından güncellendi. Değişiklikler kaydedilmedi.`, 'warning', 6000);
+            if (typeof applyRequestFilters === 'function') applyRequestFilters();
+        }
+        window.handleOrderSyncConflicts = handleOrderSyncConflicts;
+
+        function scheduleApplyRequestFilters(delay = 200) {
+            if (requestFilterDebounceTimer) clearTimeout(requestFilterDebounceTimer);
+            requestFilterDebounceTimer = setTimeout(() => {
+                requestFilterDebounceTimer = null;
+                applyRequestFilters();
+            }, Number(delay) || 200);
+        }
+        window.scheduleApplyRequestFilters = scheduleApplyRequestFilters;
+
+        function openOrdersColumnPersonalizationModal() {
+            const modal = document.getElementById('ordersColumnPersonalizationModal');
+            const list = document.getElementById('ordersColumnPersonalizationList');
+            if (!modal || !list) return;
+            const selected = ordersVisibleColumnSet || new Set(currentColumns.map(col => col.id));
+            list.innerHTML = currentColumns.map((col, index) => {
+                const checked = selected.has(col.id) ? ' checked' : '';
+                return `<div class="personalization-item">
+                    <input type="checkbox" id="orders_personal_col_${index}" data-col="${esc(col.id)}"${checked}>
+                    <label for="orders_personal_col_${index}">${esc(col.label || col.id)}</label>
+                </div>`;
+            }).join('');
+            modal.classList.add('active');
+        }
+        window.openOrdersColumnPersonalizationModal = openOrdersColumnPersonalizationModal;
+
+        function closeOrdersColumnPersonalizationModal() {
+            document.getElementById('ordersColumnPersonalizationModal')?.classList.remove('active');
+        }
+        window.closeOrdersColumnPersonalizationModal = closeOrdersColumnPersonalizationModal;
+
+        function selectAllOrdersPersonalizationColumns() {
+            document.querySelectorAll('#ordersColumnPersonalizationList input[type=checkbox]').forEach(input => {
+                input.checked = true;
+            });
+        }
+        window.selectAllOrdersPersonalizationColumns = selectAllOrdersPersonalizationColumns;
+
+        async function resetOrdersPersonalizationColumns() {
+            currentColumns = JSON.parse(JSON.stringify(defaultColumns));
+            ordersVisibleColumnSet = null;
+            localStorage.setItem('reaksiyon_column_order', JSON.stringify(currentColumns));
+            writeLocalOrdersColumnPreferences(null);
+            closeOrdersColumnPersonalizationModal();
+            renderTableHeader();
+            renderOrders();
+            const saved = await saveOrdersAccountPreferences(null).catch(error => {
+                console.warn('Talep sütun kişiselleştirmesi sıfırlanamadı:', error);
+                return false;
+            });
+            showToast(saved ? 'Talep sütunları hesapta varsayılana döndü' : 'Talep sütunları bu cihazda varsayılana döndü', saved ? 'success' : 'warning');
+        }
+        window.resetOrdersPersonalizationColumns = resetOrdersPersonalizationColumns;
+
+        async function saveOrdersPersonalizationColumns() {
+            const selected = Array.from(document.querySelectorAll('#ordersColumnPersonalizationList input[type=checkbox]'))
+                .filter(input => input.checked)
+                .map(input => input.dataset.col)
+                .filter(Boolean);
+            if (selected.length === 0) {
+                showToast('En az bir sütun seçin.', 'warning');
+                return;
+            }
+
+            ordersVisibleColumnSet = new Set(normalizeOrdersColumnIds(selected));
+            const preferences = {
+                visibleColumns: normalizeOrdersColumnIds(selected),
+                columnOrder: normalizeOrdersColumnOrder(currentColumns.map(col => col.id)),
+                columnWidths: Object.fromEntries(currentColumns.map(col => [col.id, parseInt(String(col.width || '120px'), 10) || 120])),
+                updatedAt: new Date().toISOString()
+            };
+            writeLocalOrdersColumnPreferences(preferences);
+            closeOrdersColumnPersonalizationModal();
+            renderTableHeader();
+            renderOrders();
+            const saved = await saveOrdersAccountPreferences(preferences).catch(error => {
+                console.warn('Talep sütun kişiselleştirmesi kaydedilemedi:', error);
+                return false;
+            });
+            showToast(saved ? 'Talep sütun görünümü hesabınıza kaydedildi' : 'Talep sütun görünümü bu cihazda kaydedildi', saved ? 'success' : 'warning');
+        }
+        window.saveOrdersPersonalizationColumns = saveOrdersPersonalizationColumns;
+
+        function scheduleRequestOrderSave(orderId, baseMeta = null, options = {}) {
+            const id = String(orderId || '').trim();
+            if (!id) return Promise.resolve(false);
+            if (!scheduledRequestRowBaseMeta[id]) {
+                const order = orders.find(item => String(item.id) === id);
+                scheduledRequestRowBaseMeta[id] = baseMeta || getOrderBaseMeta(order);
+            }
+            scheduledRequestChangedIds.add(id);
+            scheduledRequestDeletedIds.delete(id);
+
+            if (scheduledRequestSaveTimer) clearTimeout(scheduledRequestSaveTimer);
+            return new Promise(resolve => {
+                scheduledRequestSaveTimer = setTimeout(async () => {
+                    const changedOrderIds = Array.from(scheduledRequestChangedIds);
+                    const deletedOrderIds = Array.from(scheduledRequestDeletedIds);
+                    const rowBaseMeta = { ...scheduledRequestRowBaseMeta };
+                    scheduledRequestChangedIds = new Set();
+                    scheduledRequestDeletedIds = new Set();
+                    scheduledRequestRowBaseMeta = {};
+                    scheduledRequestSaveTimer = null;
+
+                    try {
+                        const result = await saveOrders({
+                            reason: options.reason || 'request-row-patch',
+                            changedOrderIds,
+                            deletedOrderIds,
+                            rowBaseMeta
+                        });
+                        resolve(result !== false);
+                    } catch (error) {
+                        console.warn('Talep satırı gecikmeli kayıt hatası:', error);
+                        resolve(false);
+                    }
+                }, Number(options.delay || REQUEST_SAVE_DEBOUNCE_MS));
+            });
+        }
+        window.scheduleRequestOrderSave = scheduleRequestOrderSave;
+
+        function getSelectedOrderIds() {
+            return Array.from(selectedOrderIds).filter(id => orders.some(order => String(order.id) === String(id)));
+        }
+
+        function isOrderBulkSelected(orderId) {
+            return selectedOrderIds.has(String(orderId));
+        }
+
+        function getVisibleOrderIdsForBulk() {
+            if (ordersRenderState && Array.isArray(ordersRenderState.rows)) {
+                return ordersRenderState.rows.map(order => String(order.id)).filter(Boolean);
+            }
+            return Array.from(document.querySelectorAll('#ordersTableBody tr[data-order-id]'))
+                .map(row => String(row.dataset.orderId || '').trim())
+                .filter(Boolean);
+        }
+
+        function populateOrdersBulkStatusSelect() {
+            const select = document.getElementById('ordersBulkStatus');
+            if (!select || select.dataset.ready === 'true') return;
+            select.innerHTML = ORDER_STATUS_OPTIONS
+                .map(status => `<option value="${esc(status)}">${esc(status)}</option>`)
+                .join('');
+            select.dataset.ready = 'true';
+        }
+
+        function syncOrdersBulkSelectionUi() {
+            const validIds = new Set((Array.isArray(orders) ? orders : []).map(order => String(order.id)));
+            selectedOrderIds.forEach(id => {
+                if (!validIds.has(String(id))) selectedOrderIds.delete(id);
+            });
+
+            const selectedIds = getSelectedOrderIds();
+            document.querySelectorAll('#ordersTableBody .orders-row-checkbox').forEach(checkbox => {
+                checkbox.checked = selectedOrderIds.has(String(checkbox.dataset.orderId));
+            });
+
+            const visibleIds = getVisibleOrderIdsForBulk();
+            const visibleSelectedCount = visibleIds.filter(id => selectedOrderIds.has(String(id))).length;
+            const selectAll = document.getElementById('ordersBulkSelectAll');
+            if (selectAll) {
+                selectAll.checked = visibleIds.length > 0 && visibleSelectedCount === visibleIds.length;
+                selectAll.indeterminate = visibleSelectedCount > 0 && visibleSelectedCount < visibleIds.length;
+            }
+
+            populateOrdersBulkStatusSelect();
+            const countEl = document.getElementById('ordersBulkCount');
+            if (countEl) countEl.textContent = String(selectedIds.length);
+            const toolbar = document.getElementById('ordersBulkToolbar');
+            if (toolbar) toolbar.style.display = selectedIds.length > 0 ? 'flex' : 'none';
+        }
+
+        function toggleOrderBulkSelection(orderId, checked) {
+            const id = String(orderId || '').trim();
+            if (!id) return;
+            if (checked) selectedOrderIds.add(id);
+            else selectedOrderIds.delete(id);
+            syncOrdersBulkSelectionUi();
+        }
+        window.toggleOrderBulkSelection = toggleOrderBulkSelection;
+
+        function toggleAllVisibleOrders(checked) {
+            getVisibleOrderIdsForBulk().forEach(id => {
+                if (checked) selectedOrderIds.add(String(id));
+                else selectedOrderIds.delete(String(id));
+            });
+            syncOrdersBulkSelectionUi();
+        }
+        window.toggleAllVisibleOrders = toggleAllVisibleOrders;
+
+        function clearOrdersBulkSelection() {
+            selectedOrderIds = new Set();
+            syncOrdersBulkSelectionUi();
+        }
+        window.clearOrdersBulkSelection = clearOrdersBulkSelection;
+
+        function getOrdersBulkFieldValue(field) {
+            if (field === 'requestDate') return document.getElementById('ordersBulkRequestDate')?.value || '';
+            if (field === 'deliveryDate') return document.getElementById('ordersBulkDeliveryDate')?.value || '';
+            if (field === 'status') return document.getElementById('ordersBulkStatus')?.value || '';
+            return '';
+        }
+
+        function getOrdersBulkFieldLabel(field) {
+            if (field === 'requestDate') return 'Talep Tarihi';
+            if (field === 'deliveryDate') return 'Teslim Tarihi';
+            if (field === 'status') return 'Durum';
+            return field;
+        }
+
+        async function bulkUpdateSelectedOrders(field) {
+            const allowedFields = new Set(['requestDate', 'deliveryDate', 'status']);
+            if (!allowedFields.has(field)) return;
+
+            let value = getOrdersBulkFieldValue(field);
+            if (!value) {
+                showToast('Uygulanacak değeri seçin.', 'warning');
+                return;
+            }
+            if (field === 'status') value = normalizeOrderStatus(value);
+
+            const selectedIds = getSelectedOrderIds();
+            if (selectedIds.length === 0) {
+                showToast('Önce satır seçin.', 'warning');
+                return;
+            }
+
+            const changedOrderIds = [];
+            const rowBaseMeta = {};
+            const now = new Date().toISOString();
+            const changedBy = getActiveUserParaf('Bilinmiyor');
+            const label = getOrdersBulkFieldLabel(field);
+
+            selectedIds.forEach(id => {
+                const order = orders.find(item => String(item.id) === String(id));
+                if (!order) return;
+                const oldValue = field === 'status' ? normalizeOrderStatus(order.status) : (order[field] || '');
+                if (String(oldValue || '') === String(value || '')) return;
+                rowBaseMeta[id] = getOrderBaseMeta(order);
+                if (!Array.isArray(order.changeHistory)) order.changeHistory = [];
+                order.changeHistory.push({
+                    field: label,
+                    oldValue,
+                    newValue: value,
+                    changedBy,
+                    changedAt: now
+                });
+                order[field] = value;
+
+                if (field === 'requestDate') {
+                    const nextPlannedEndDate = addDaysToDateOnly(value, 14);
+                    if (nextPlannedEndDate && order.plannedEndDate !== nextPlannedEndDate) {
+                        order.changeHistory.push({
+                            field: 'Planlanan Bitiş',
+                            oldValue: order.plannedEndDate || '',
+                            newValue: nextPlannedEndDate,
+                            changedBy,
+                            changedAt: now
+                        });
+                        order.plannedEndDate = nextPlannedEndDate;
+                    }
+                }
+
+                order.lastModifiedBy = changedBy;
+                order.lastModifiedAt = now;
+                changedOrderIds.push(id);
+            });
+
+            if (changedOrderIds.length === 0) {
+                showToast('Seçili satırlarda değişiklik yok.', 'info');
+                return;
+            }
+
+            await saveOrders({
+                reason: `request-bulk-${field}`,
+                changedOrderIds,
+                rowBaseMeta
+            });
+            renderDashboard();
+            applyRequestFilters();
+            renderWeekSidebar();
+            showToast(`${changedOrderIds.length} talep güncellendi.`, 'success');
+        }
+        window.bulkUpdateSelectedOrders = bulkUpdateSelectedOrders;
+
+        async function bulkDeleteSelectedOrders() {
+            if (!canDeleteData()) {
+                showToast('Bu işlem için yetkiniz yok.', 'error');
+                return;
+            }
+            const selectedIds = getSelectedOrderIds();
+            if (selectedIds.length === 0) {
+                showToast('Önce satır seçin.', 'warning');
+                return;
+            }
+            if (!confirm(`${selectedIds.length} talebi silmek istediğinizden emin misiniz?`)) return;
+
+            const rowBaseMeta = {};
+            selectedIds.forEach(id => {
+                const order = orders.find(item => String(item.id) === String(id));
+                if (order) rowBaseMeta[id] = getOrderBaseMeta(order);
+            });
+            orders = orders.filter(order => !selectedOrderIds.has(String(order.id)));
+            selectedOrderIds = new Set();
+
+            await saveOrders({
+                reason: 'request-bulk-delete',
+                deletedOrderIds: selectedIds,
+                rowBaseMeta
+            });
+            renderDashboard();
+            applyRequestFilters();
+            renderWeekSidebar();
+            syncOrdersBulkSelectionUi();
+            showToast(`${selectedIds.length} talep silindi.`, 'warning');
+        }
+        window.bulkDeleteSelectedOrders = bulkDeleteSelectedOrders;
         window.syncSalesLinesPayloadToCloud = syncSalesLinesPayloadToCloud;
+
+        async function syncSalesLinesTodayOutputsToCloud(payload, reason = 'sales_lines_today_outputs_update', syncOptions = {}) {
+            if (!payload) return false;
+            if (isTestLocalSession()) return true;
+            if (typeof firebaseReady !== 'undefined' && firebaseReady && typeof firebaseSync !== 'undefined' && typeof firebaseSync.syncSalesLinesTodayOutputs === 'function') {
+                try {
+                    return await firebaseSync.syncSalesLinesTodayOutputs(payload, { reason, ...syncOptions });
+                } catch (error) {
+                    console.warn('Bugünün çıkışları Firebase sync hatası:', error);
+                    return false;
+                }
+            }
+            return false;
+        }
+        window.syncSalesLinesTodayOutputsToCloud = syncSalesLinesTodayOutputsToCloud;
 
         function initEmbeddedSalesLinesFrame() {
             const frame = document.getElementById('salesLinesFrame');
@@ -1372,13 +2006,13 @@
                 }
                 syncSalesLinesPermissionsToFrame();
             };
-    const salesLinesVersion = '20260510-request-prune-fix';
+    const salesLinesVersion = '20260513-conflicts';
     frame.src = `./sales-lines.html?v=${salesLinesVersion}${isTestLocalSession() ? '&testLocal=1' : ''}`;
             frame.dataset.embeddedReady = 'true';
         }
 
         function syncWorkspaceScrollMode(tabId) {
-            const lockScroll = tabId === 'sales-lines' || tabId === 'orders' || tabId === 'urgent' || tabId === 'vcap' || tabId === 'liyofilize' || tabId === 'tube' || tabId === 'unmatched';
+            const lockScroll = tabId === 'sales-lines' || tabId === 'orders' || tabId === 'urgent' || tabId === 'overdue' || tabId === 'delivered' || tabId === 'vcap' || tabId === 'liyofilize' || tabId === 'tube' || tabId === 'unmatched';
             document.body.classList.toggle('workspace-locked', lockScroll);
         }
 
@@ -1431,6 +2065,8 @@
                 const title = document.querySelector('#orders .card-title');
                 if (title) {
                     if (activeTabFilter === 'urgent') title.textContent = 'Acil Beklenen Talepler';
+                    else if (activeTabFilter === 'overdue') title.textContent = 'Geciken Talepler';
+                    else if (activeTabFilter === 'delivered') title.textContent = 'Teslim Edilen Talepler';
                     else if (activeTabFilter === 'vcap') title.textContent = 'vCAP Talepleri';
                     else if (activeTabFilter === 'liyofilize') title.textContent = 'Liyofilize Talepleri';
                     else if (activeTabFilter === 'tube') title.textContent = 'Tüp Format Talepleri';
@@ -1483,6 +2119,16 @@
                         frame.contentWindow.postMessage({ type: 'sales-lines-remote-state', payload: payloadToSend }, '*');
                     }
                     syncSalesLinesPermissionsToFrame();
+                }
+                return;
+            }
+
+            if (event.data && event.data.type === 'sales-lines-conflict-count') {
+                const count = Number(event.data.count || 0) || 0;
+                if (count > 0) {
+                    setSyncStatus('conflict', `${count} satış satırı karar bekliyor.`);
+                } else if (syncStatusState.state === 'conflict') {
+                    refreshSyncStatusFromRuntime();
                 }
                 return;
             }
@@ -1608,7 +2254,7 @@
             });
 
             const globalSearchEl = document.getElementById('globalSearch');
-            const searchTerm = globalSearchEl ? globalSearchEl.value.toLowerCase() : '';
+            const searchTerm = globalSearchEl ? globalSearchEl.value.trim().toLocaleLowerCase('tr') : '';
 
             // Gather individual column filters (if we decide to keep them in addition)
             // Currently I removed input fields from headers to clean up, but we can re-add or just use global search.
@@ -1623,9 +2269,15 @@
                 // 3. Tab Format Filter
                 const tabBucket = getFormatBucket(order);
                 const unmatched = isUnmatchedOrder(order);
+                const delivered = isDeliveredRequestOrder(order);
+                const searchIsActive = !!searchTerm;
 
                 if (activeTabFilter === 'urgent') {
                     if (!isUrgentExpectedOrder(order)) return false;
+                } else if (activeTabFilter === 'overdue') {
+                    if (!isOverdueRequestOrder(order)) return false;
+                } else if (activeTabFilter === 'delivered') {
+                    if (!delivered) return false;
                 } else if (activeTabFilter === 'vcap') {
                     if (tabBucket !== 'vcap' || unmatched) return false;
                 } else if (activeTabFilter === 'liyofilize') {
@@ -1636,9 +2288,11 @@
                     if (!unmatched) return false;
                 }
 
+                if (delivered && activeTabFilter !== 'delivered' && !searchIsActive) return false;
+
                 // 3.5. Status Multi-Filter
                 if (activeStatusFilters.size > 0) {
-                    if (!activeStatusFilters.has(order.status)) return false;
+                    if (!activeStatusFilters.has(normalizeOrderStatus(order.status))) return false;
                 }
 
                 // 4. Column Filters
@@ -1679,6 +2333,7 @@
                         order.requesterNote,
                         order.lotNo,
                         order.producerNote,
+                        order.distributionNote,
                         order.producer,
                         order.qcApprover,
                         order.componentLots,
@@ -1686,7 +2341,7 @@
                         order.qcNote,
                         order.status,
                         order.producer
-                    ].join(' ').toLowerCase();
+                    ].join(' ').toLocaleLowerCase('tr');
 
                     if (!searchableText.includes(searchTerm)) return false;
                 }
@@ -1694,7 +2349,7 @@
                 return true;
             });
 
-            const urgentSorted = activeTabFilter === 'urgent'
+            const urgentSorted = activeTabFilter === 'urgent' || activeTabFilter === 'overdue'
                 ? [...filtered].sort((a, b) => getOrderExitDateTime(a) - getOrderExitDateTime(b))
                 : filtered;
 
@@ -1790,9 +2445,15 @@
 
                 const tabBucket = getFormatBucket(order);
                 const unmatched = isUnmatchedOrder(order);
+                const delivered = isDeliveredRequestOrder(order);
+                const hasSearch = !!String(document.getElementById('globalSearch')?.value || '').trim();
 
                 if (activeTabFilter === 'urgent') {
                     if (!isUrgentExpectedOrder(order)) return false;
+                } else if (activeTabFilter === 'overdue') {
+                    if (!isOverdueRequestOrder(order)) return false;
+                } else if (activeTabFilter === 'delivered') {
+                    if (!delivered) return false;
                 } else if (activeTabFilter === 'vcap') {
                     if (tabBucket !== 'vcap' || unmatched) return false;
                 } else if (activeTabFilter === 'liyofilize') {
@@ -1802,8 +2463,9 @@
                 } else if (activeTabFilter === 'unmatched') {
                     if (!unmatched) return false;
                 }
+                if (delivered && activeTabFilter !== 'delivered' && !hasSearch) return false;
 
-                if (activeStatusFilters.size > 0 && !activeStatusFilters.has(order.status)) return false;
+                if (activeStatusFilters.size > 0 && !activeStatusFilters.has(normalizeOrderStatus(order.status))) return false;
 
                 for (const colKey of Object.keys(activeColFilters)) {
                     const filterVal = String(activeColFilters[colKey] || '').toLocaleLowerCase('tr');
@@ -1826,7 +2488,7 @@
                 }
 
                 const globalSearchEl = document.getElementById('globalSearch');
-                const searchTerm = globalSearchEl ? String(globalSearchEl.value || '').toLocaleLowerCase('tr') : '';
+                const searchTerm = globalSearchEl ? String(globalSearchEl.value || '').trim().toLocaleLowerCase('tr') : '';
                 if (!searchTerm) return true;
 
                 const searchableText = [
@@ -1845,6 +2507,7 @@
                     order.requesterNote,
                     order.lotNo,
                     order.producerNote,
+                    order.distributionNote,
                     order.producer,
                     order.status,
                     order.lastModifiedBy
@@ -1866,6 +2529,9 @@
             if (colId === 'weekNumber') {
                 return order[colId] != null ? String(order[colId]) : '';
             }
+            if (colId === 'status') {
+                return normalizeOrderStatus(order.status);
+            }
             return order[colId] != null ? String(order[colId]) : '';
         }
 
@@ -1882,9 +2548,15 @@
                 // Tab format filter
                 const tabBucket = getFormatBucket(order);
                 const unmatched = isUnmatchedOrder(order);
+                const delivered = isDeliveredRequestOrder(order);
+                const hasSearch = !!String(document.getElementById('globalSearch')?.value || '').trim();
 
                 if (activeTabFilter === 'urgent') {
                     if (!isUrgentExpectedOrder(order)) return false;
+                } else if (activeTabFilter === 'overdue') {
+                    if (!isOverdueRequestOrder(order)) return false;
+                } else if (activeTabFilter === 'delivered') {
+                    if (!delivered) return false;
                 } else if (activeTabFilter === 'vcap') {
                     if (tabBucket !== 'vcap' || unmatched) return false;
                 } else if (activeTabFilter === 'liyofilize') {
@@ -1894,9 +2566,10 @@
                 } else if (activeTabFilter === 'unmatched') {
                     if (!unmatched) return false;
                 }
+                if (delivered && activeTabFilter !== 'delivered' && !hasSearch) return false;
                 // Status filter
                 if (activeStatusFilters.size > 0) {
-                    if (!activeStatusFilters.has(order.status)) return false;
+                    if (!activeStatusFilters.has(normalizeOrderStatus(order.status))) return false;
                 }
                 // Other column filters (skip the column being opened)
                 for (const [key, selectedValues] of Object.entries(ordersColFilters)) {
@@ -2047,14 +2720,14 @@
             var urgentOrders = [];
             for (var i = 0; i < orders.length; i++) {
                 var order = orders[i];
-                var s = order.status;
-                if (s === '-' || s === '' || !s) {
+                var s = normalizeOrderStatus(order.status);
+                if (s === 'Ürün İşlem Bekliyor') {
                     inProductionCount++;
                 } else {
                     statusCounts[s] = (statusCounts[s] || 0) + 1;
                 }
 
-                if (s !== 'Teslim Edildi' && s !== 'İptal Edildi' && order.deliveryDate) {
+                if (!isClosedRequestOrder(order) && order.deliveryDate) {
                     var dDate = new Date(order.deliveryDate);
                     if (!isNaN(dDate.getTime()) && dDate <= oneWeekFromNow) {
                         urgentOrders.push(order);
@@ -2063,12 +2736,12 @@
             }
 
             document.getElementById('totalOrders').textContent = orders.length;
-            document.getElementById('pendingQC').textContent = statusCounts['QC Bekliyor'] || 0;
-            document.getElementById('delivered').textContent = statusCounts['Teslim Edildi'] || 0;
-            document.getElementById('destroyed').textContent = statusCounts['İmha edilecek'] || 0;
-            document.getElementById('distributed').textContent = statusCounts['Dağıtıldı'] || 0;
-            document.getElementById('qcRepeat').textContent = statusCounts['QC tekrarlanacak'] || 0;
-            document.getElementById('labeled').textContent = statusCounts['Etiketlendi'] || 0;
+            document.getElementById('pendingQC').textContent = statusCounts['Ürün QC ye gitti'] || 0;
+            document.getElementById('delivered').textContent = statusCounts['Ürün Teslim Edildi'] || 0;
+            document.getElementById('destroyed').textContent = statusCounts['Ürün İptal Edildi'] || 0;
+            document.getElementById('distributed').textContent = statusCounts['Ürün Dağıtıldı'] || 0;
+            document.getElementById('qcRepeat').textContent = statusCounts['Ürün QC tekrarına gitti'] || 0;
+            document.getElementById('labeled').textContent = statusCounts['Ürün Etiketlendi'] || 0;
             document.getElementById('inProduction').textContent = inProductionCount;
 
             const urgentSalesOrders = getSalesLinesOrders().filter(order => {
@@ -2202,6 +2875,7 @@
 
             const nextOrders = orders.filter(order => {
                 if (!order || order.sourceSystem !== 'sales-lines') return true;
+                if (order.salesLineRequestMode === 'manual') return true;
                 return linkedRequestIds.has(String(order.id || '').trim());
             });
 
@@ -2344,6 +3018,61 @@
 
         function getMaterialComponentLookup() {
             return buildMaterialComponentLookup();
+        }
+
+        function normalizeComponentText(value) {
+            return String(value || '')
+                .trim()
+                .toLocaleUpperCase('tr')
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/\s+/g, ' ');
+        }
+
+        function buildDescriptionComponentLookup() {
+            const byDescription = new Map();
+            const materialLookup = getMaterialComponentLookup();
+
+            materialLookup.forEach(item => {
+                const key = normalizeComponentText(item.rxnName);
+                if (!key) return;
+                if (!byDescription.has(key)) {
+                    byDescription.set(key, item);
+                    return;
+                }
+
+                const existing = byDescription.get(key);
+                if (existing && existing.materialNo !== item.materialNo) {
+                    byDescription.set(key, null);
+                }
+            });
+
+            return byDescription;
+        }
+
+        function completeOrderIdentityFromProductTree(materialNoValue, rxnNameValue) {
+            const materialLookup = getMaterialComponentLookup();
+            const descriptionLookup = buildDescriptionComponentLookup();
+            let materialNo = String(materialNoValue || '').trim().toUpperCase();
+            let rxnName = String(rxnNameValue || '').trim();
+            let match = materialNo ? materialLookup.get(materialNo) : null;
+
+            if (!match && rxnName) {
+                match = descriptionLookup.get(normalizeComponentText(rxnName)) || null;
+                if (match && !materialNo) materialNo = match.materialNo || '';
+            }
+
+            if (match) {
+                if (!rxnName && match.rxnName) rxnName = match.rxnName;
+                if (!materialNo && match.materialNo) materialNo = match.materialNo;
+            }
+
+            return {
+                materialNo,
+                rxnName,
+                format: match?.format || '',
+                catalogNo: match?.catalogNo || ''
+            };
         }
 
         function fillDetailMaterialNoOptions() {
@@ -2541,16 +3270,7 @@
 
         function isUrgentExpectedOrder(order) {
             if (!order) return false;
-            const status = String(order.status || '').trim();
-            const normalizedStatus = status.toLocaleLowerCase('tr');
-            if (
-                normalizedStatus === 'teslim edildi' ||
-                normalizedStatus === 'iptal edildi' ||
-                normalizedStatus === 'ürün çıktı' ||
-                normalizedStatus === 'urun cikti' ||
-                normalizedStatus === 'ürün iptal edildi' ||
-                normalizedStatus === 'urun iptal edildi'
-            ) return false;
+            if (isClosedRequestOrder(order)) return false;
 
             const exitDate = getOrderExitDate(order);
             if (!(exitDate instanceof Date) || isNaN(exitDate.getTime())) return false;
@@ -2562,6 +3282,37 @@
             const exitStart = new Date(exitDate.getFullYear(), exitDate.getMonth(), exitDate.getDate());
 
             return exitStart.getTime() <= threeDaysLater.getTime();
+        }
+
+        function getRequestStatusKey(order) {
+            return normalizeOrderStatus(order?.status).toLocaleLowerCase('tr');
+        }
+
+        function isDeliveredRequestOrder(order) {
+            const status = getRequestStatusKey(order);
+            return status.includes('teslim edildi');
+        }
+
+        function isClosedRequestOrder(order) {
+            const status = getRequestStatusKey(order);
+            return status.includes('teslim edildi')
+                || status.includes('iptal edildi')
+                || status === 'ürün çıktı'
+                || status === 'urun cikti';
+        }
+
+        function isExpectedRequestOrder(order) {
+            return !!order && !isClosedRequestOrder(order);
+        }
+
+        function isOverdueRequestOrder(order) {
+            if (!order || isClosedRequestOrder(order)) return false;
+            const exitDate = getOrderExitDate(order);
+            if (!(exitDate instanceof Date) || isNaN(exitDate.getTime())) return false;
+            const now = new Date();
+            const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const exitStart = new Date(exitDate.getFullYear(), exitDate.getMonth(), exitDate.getDate());
+            return exitStart.getTime() < todayStart.getTime();
         }
 
         function getLegacyProductTreeComponentsByCatalog(catalogNo) {
@@ -2838,6 +3589,7 @@
                         productionOrderNo: '',
                         linkedSalesOrderIds: [externalId],
                         sourceSystem: 'sales-lines',
+                        salesLineRequestMode: 'manual',
                         sourceExternalId
                     });
                     if (createdOrder) createdOrders.push(createdOrder);
@@ -2858,6 +3610,7 @@
                     productionOrderNo: '',
                     linkedSalesOrderIds: [externalId],
                     sourceSystem: 'sales-lines',
+                    salesLineRequestMode: 'manual',
                     sourceExternalId: `${externalId}::${catalogNo || description}::unmatched`
                 });
                 if (createdOrder) createdOrders.push(createdOrder);
@@ -3224,6 +3977,8 @@
         function makeEditable(cell, orderId, colId, type) {
             if (cell.querySelector('.editable-textarea') || cell.querySelector('input') || cell.querySelector('select')) return;
 
+            const editOrder = orders.find(item => String(item.id) === String(orderId));
+            if (editOrder) activeRequestEditBaseMeta[String(orderId)] = getOrderBaseMeta(editOrder);
             const currentValue = cell.innerText;
             const isDetailItem = cell.classList.contains('editable-detail');
 
@@ -3320,6 +4075,8 @@
         function saveCell(orderId, colId, value) {
             const order = orders.find(o => o.id === orderId);
             if (!order) return;
+            const baseMeta = activeRequestEditBaseMeta[String(orderId)] || getOrderBaseMeta(order);
+            delete activeRequestEditBaseMeta[String(orderId)];
 
             // Trim
             const cleanVal = typeof value === 'string' ? value.trim() : value;
@@ -3382,22 +4139,18 @@
                 applyMaterialLookupToOrder(order, cleanVal);
             }
 
-            // Auto-update deliveryDate when requestDate changes (4 weeks after)
+            // Talep tarihi değişince planlanan bitişi otomatik 2 hafta sonrasına al.
             if (colId === 'requestDate' && cleanVal) {
-                const reqDate = new Date(cleanVal);
-                if (!isNaN(reqDate.getTime())) {
-                    reqDate.setDate(reqDate.getDate() + 21);
-                    const newDeliveryDate = reqDate.toISOString().split('T')[0];
-                    if (order.deliveryDate !== newDeliveryDate) {
-                        order.changeHistory.push({
-                            field: 'Çıkış Tarihi',
-                            oldValue: order.deliveryDate || '',
-                            newValue: newDeliveryDate,
-                            changedBy: getActiveUserParaf('Sistem'),
-                            changedAt: new Date().toISOString()
-                        });
-                        order.deliveryDate = newDeliveryDate;
-                    }
+                const newPlannedEndDate = addDaysToDateOnly(cleanVal, 14);
+                if (newPlannedEndDate && order.plannedEndDate !== newPlannedEndDate) {
+                    order.changeHistory.push({
+                        field: 'Planlanan Bitiş',
+                        oldValue: order.plannedEndDate || '',
+                        newValue: newPlannedEndDate,
+                        changedBy: getActiveUserParaf('Sistem'),
+                        changedAt: new Date().toISOString()
+                    });
+                    order.plannedEndDate = newPlannedEndDate;
                 }
             }
 
@@ -3405,7 +4158,7 @@
             order.lastModifiedAt = new Date().toISOString();
 
             // Save data to storage/Firebase
-            saveOrders();
+            scheduleRequestOrderSave(orderId, baseMeta, { reason: 'request-cell-edit' });
 
             if (isDetailField) {
                 // Detay alanı: sadece span metnini güncelle, tabloyu yeniden render etme
@@ -3510,18 +4263,7 @@
         function openOrdersStatusFilter(event) {
             closeOrdersColFilter();
 
-            const allStatuses = [
-                { value: '-', label: 'İşlem Bekliyor' },
-                { value: 'QC Bekliyor', label: 'QC Bekliyor' },
-                { value: 'QC Geçti', label: 'QC Geçti' },
-                { value: 'Teslim Edildi', label: 'Teslim Edildi' },
-                { value: 'Etiketlendi', label: 'Etiketlendi' },
-                { value: 'QC tekrarlanacak', label: 'QC Tekrar' },
-                { value: 'İmha edilecek', label: 'İmha edilecek' },
-                { value: 'QC GİDECEK', label: 'QC Gidecek' },
-                { value: 'Dağıtıldı', label: 'Dağıtıldı' },
-                { value: 'İptal Edildi', label: 'İptal Edildi' }
-            ];
+            const allStatuses = ORDER_STATUS_OPTIONS.map(status => ({ value: status, label: status }));
 
             const th = event && event.target ? event.target.closest('th') : null;
             if (!th) return;
@@ -3624,9 +4366,9 @@
                 const parsed = parseInt(String(value || '').replace('px', ''), 10);
                 return Number.isFinite(parsed) && parsed > 0 ? parsed : 120;
             };
-            const widths = [44, ...safeColumns.map(col => toPx(col.width)), 90, 150];
-            colGroup.innerHTML = widths.map(width => `<col style="width:${width}px;">`).join('');
+            const widths = [58, ...safeColumns.map(col => toPx(col.width))];
             const totalWidth = widths.reduce((sum, width) => sum + width, 0);
+            colGroup.innerHTML = widths.map(width => `<col style="width:${width}px;">`).join('');
             table.style.width = `${totalWidth}px`;
             table.style.minWidth = `${totalWidth}px`;
         }
@@ -3634,16 +4376,18 @@
         function renderTableHeader() {
             const thead = document.querySelector('#orders .excel-table thead');
             const safeColumns = getSafeColumns();
-            if (safeColumns.length !== currentColumns.length) {
-                currentColumns = safeColumns;
-                localStorage.setItem('reaksiyon_column_order', JSON.stringify(currentColumns));
-            }
             renderOrdersTableColGroup(safeColumns);
 
             let html = '<tr class="filter-header-row">';
-            html += '<th class="select-col" style="width: 44px;"></th>'; // Icon col
+            html += `
+                <th class="select-col" style="width: 58px;">
+                    <input type="checkbox" id="ordersBulkSelectAll" class="orders-select-all-checkbox"
+                        onclick="event.stopPropagation(); toggleAllVisibleOrders(this.checked)"
+                        aria-label="Görünen satırları seç">
+                </th>`;
 
             safeColumns.forEach((col, index) => {
+                const modelIndex = currentColumns.findIndex(item => item.id === col.id);
                 // Determine if this column has an active filter
                 let hasFilter = false;
                 if (col.type === 'status') {
@@ -3653,25 +4397,24 @@
                 }
                 const filterClass = hasFilter ? 'active-filter' : '';
 
-                // Sort indicator (sales lines style)
-                const sortIcon = activeSortState.colId === col.id
-                    ? (activeSortState.direction === 'asc' ? '' : '')
-                    : 'â†•';
-
                 html += `
                     <th draggable="true" style="width: ${col.width}" data-col="${col.id}" data-filter-col="${col.id}"
-                        ondragstart="dragStart(event, ${index})"
-                        ondragover="dragOver(event, ${index})"
+                        ondragstart="dragStart(event, ${modelIndex})"
+                        ondragover="dragOver(event, ${modelIndex})"
                         ondragenter="dragEnter(event)"
                         ondragleave="dragLeave(event)"
-                        ondrop="drop(event, ${index})">
-                        <span class="th-label orders-sort-trigger" data-sort-col="${col.id}" style="cursor:pointer;">${col.label} <span class="sort-icon">${sortIcon}</span></span>
-                        <span class="filter-icon ${filterClass}" data-filter-button="${col.id}" data-filter-type="${col.type || 'text'}" onclick="handleOrdersHeaderFilterClick(event,this)" title="Filtrele" aria-label="${col.label} filtresi" aria-expanded="${(col.type === 'status' && activeOrdersFilterPopup === '_status_') || activeOrdersFilterPopup === col.id ? 'true' : 'false'}">▼</span>
-                        <span class="col-resizer" title="Sütun genişliğini değiştir" onmousedown="initResize(event, ${index})" ondblclick="resetOrderColumnWidth(event, ${index})"></span>
+                        ondrop="drop(event, ${modelIndex})">
+                        <div class="orders-th-inner">
+                            <span class="th-label orders-sort-trigger" data-sort-col="${col.id}">
+                                <span class="orders-sort-label">${col.label}</span>
+                            </span>
+                            <span class="filter-icon ${filterClass}" data-filter-button="${col.id}" data-filter-type="${col.type || 'text'}" onclick="handleOrdersHeaderFilterClick(event,this)" title="Filtrele" aria-label="${col.label} filtresi" aria-expanded="${(col.type === 'status' && activeOrdersFilterPopup === '_status_') || activeOrdersFilterPopup === col.id ? 'true' : 'false'}">▼</span>
+                        </div>
+                        <span class="col-resizer" title="Sütun genişliğini değiştir" onmousedown="initResize(event, ${modelIndex})" ondblclick="resetOrderColumnWidth(event, ${modelIndex})"></span>
                     </th>
                 `;
             });
-            html += '<th style="width: 90px;">Değiştiren</th><th style="width: 150px;">Son Değişiklik</th></tr>';
+            html += '</tr>';
             thead.innerHTML = html;
 
             thead.querySelectorAll('[data-sort-col]').forEach(trigger => {
@@ -3680,6 +4423,7 @@
                     toggleColumnSort(trigger.dataset.sortCol);
                 });
             });
+            syncOrdersBulkSelectionUi();
 
         }
 
@@ -3998,20 +4742,21 @@
 
             // Update model
             currentColumns[resizingColIndex].width = newWidth + 'px';
+            const visibleIndex = getSafeColumns().findIndex(col => col.id === currentColumns[resizingColIndex]?.id);
 
             const ths = document.querySelectorAll('#orders .excel-table th');
             // first th is empty icon col, so index + 1
-            const targetTh = ths[resizingColIndex + 1];
+            const targetTh = ths[visibleIndex + 1];
             if (targetTh) {
                 targetTh.style.width = newWidth + 'px';
             }
 
-            const colElement = document.querySelector(`#ordersTableColGroup col:nth-child(${resizingColIndex + 2})`);
+            const colElement = document.querySelector(`#ordersTableColGroup col:nth-child(${visibleIndex + 2})`);
             if (colElement) colElement.style.width = newWidth + 'px';
 
             const table = document.querySelector('#orders .excel-table');
             if (table) {
-                const widths = [44, ...getSafeColumns().map(col => parseInt(String(col.width || '120px'), 10) || 120), 90, 150];
+                const widths = [58, ...getSafeColumns().map(col => parseInt(String(col.width || '120px'), 10) || 120)];
                 const totalWidth = widths.reduce((sum, width) => sum + width, 0);
                 table.style.width = `${totalWidth}px`;
                 table.style.minWidth = `${totalWidth}px`;
@@ -4026,14 +4771,20 @@
 
             // Clean up visual class
             const ths = document.querySelectorAll('#orders .excel-table th');
-            if (ths[resizingColIndex + 1]) {
-                ths[resizingColIndex + 1].classList.remove('resizing');
+            const visibleIndex = getSafeColumns().findIndex(col => col.id === currentColumns[resizingColIndex]?.id);
+            if (ths[visibleIndex + 1]) {
+                ths[visibleIndex + 1].classList.remove('resizing');
             }
 
             resizingColIndex = null;
 
             // Perist
             localStorage.setItem('reaksiyon_column_order', JSON.stringify(currentColumns));
+            writeLocalOrdersColumnPreferences({
+                visibleColumns: ordersVisibleColumnSet ? currentColumns.map(col => col.id).filter(id => ordersVisibleColumnSet.has(id)) : currentColumns.map(col => col.id),
+                columnOrder: currentColumns.map(col => col.id),
+                columnWidths: Object.fromEntries(currentColumns.map(col => [col.id, parseInt(String(col.width || '120px'), 10) || 120]))
+            });
 
             // Full re-render to ensure compatibility
             renderTableHeader();
@@ -4048,25 +4799,35 @@
             if (!col || !defaultCol) return;
             col.width = defaultCol.width;
             localStorage.setItem('reaksiyon_column_order', JSON.stringify(currentColumns));
+            writeLocalOrdersColumnPreferences({
+                visibleColumns: ordersVisibleColumnSet ? currentColumns.map(item => item.id).filter(id => ordersVisibleColumnSet.has(id)) : currentColumns.map(item => item.id),
+                columnOrder: currentColumns.map(item => item.id),
+                columnWidths: Object.fromEntries(currentColumns.map(item => [item.id, parseInt(String(item.width || '120px'), 10) || 120]))
+            });
             renderTableHeader();
             applyRequestFilters();
         }
 
         // Excel-like Table Rendering
-        const ORDERS_RENDER_BATCH_SIZE = 160;
+        const ORDERS_RENDER_BATCH_SIZE = 80;
         let ordersRenderState = {
             rows: [],
             safeColumns: [],
             renderedCount: 0,
             tbody: null,
-            scrollBound: false
+            scrollBound: false,
+            boundContainer: null,
+            windowScrollBound: false
         };
 
         function buildOrderRowHtml(order, safeColumns) {
             return window.ReaksiyonOrdersRenderer.renderRow(order, safeColumns, {
                 formatDate,
                 resolveOrderFormat,
-                formatDateTimeShort
+                formatDateTimeShort,
+                normalizeOrderStatus,
+                orderStatusOptions: ORDER_STATUS_OPTIONS,
+                isOrderBulkSelected
             });
         }
 
@@ -4076,6 +4837,11 @@
             const shown = Math.min(ordersRenderState.renderedCount || 0, totalRows || 0);
             const renderHint = shown < totalRows ? ` (${shown} görüntüleniyor)` : '';
             resultCountEl.textContent = `${totalRows} / ${orders.length} kayıt${renderHint}`;
+            const paginationEl = document.getElementById('paginationContainer');
+            if (paginationEl) {
+                const suffix = shown < totalRows ? ' - devamı için aşağı kaydırın' : '';
+                paginationEl.innerHTML = `<div class="pagination-info">${shown} / ${totalRows} satır${suffix}</div>`;
+            }
         }
 
         function appendNextOrdersBatch() {
@@ -4090,26 +4856,73 @@
             state.tbody.insertAdjacentHTML('beforeend', htmlParts.join(''));
             state.renderedCount = nextCount;
             updateOrdersRenderCount(state.rows.length);
+            syncOrdersBulkSelectionUi();
+        }
+
+        function getOrdersScrollContainer() {
+            return document.querySelector('#orders .orders-table-scroll')
+                || document.getElementById('ordersTableBody')?.closest('.table-container')
+                || null;
+        }
+
+        function isNearOrdersScrollEnd(container) {
+            if (container && container.scrollHeight > container.clientHeight) {
+                return container.scrollTop + container.clientHeight >= container.scrollHeight - 500;
+            }
+
+            const doc = document.documentElement;
+            const body = document.body;
+            const scrollTop = window.scrollY || doc.scrollTop || body.scrollTop || 0;
+            const viewport = window.innerHeight || doc.clientHeight || 0;
+            const height = Math.max(body.scrollHeight || 0, doc.scrollHeight || 0);
+            return scrollTop + viewport >= height - 500;
+        }
+
+        function fillOrdersViewportIfNeeded() {
+            const container = getOrdersScrollContainer();
+            let guard = 0;
+            while (
+                ordersRenderState.renderedCount < ordersRenderState.rows.length
+                && container
+                && container.scrollHeight <= container.clientHeight + 40
+                && guard < 8
+            ) {
+                guard += 1;
+                appendNextOrdersBatch();
+            }
+        }
+
+        function handleOrdersInfiniteScroll() {
+            if (ordersRenderState.renderedCount >= ordersRenderState.rows.length) return;
+            if (isNearOrdersScrollEnd(getOrdersScrollContainer())) appendNextOrdersBatch();
         }
 
         function setupOrdersVirtualScroll() {
-            if (ordersRenderState.scrollBound) return;
-            const tbody = document.getElementById('ordersTableBody');
-            const container = tbody ? tbody.closest('.table-container') : null;
+            const container = getOrdersScrollContainer();
             if (!container) return;
 
-            let ticking = false;
-            container.addEventListener('scroll', () => {
-                if (ticking) return;
-                ticking = true;
-                requestAnimationFrame(() => {
-                    ticking = false;
-                    if (container.scrollTop + container.clientHeight >= container.scrollHeight - 500) {
-                        appendNextOrdersBatch();
-                    }
-                });
-            }, { passive: true });
-            ordersRenderState.scrollBound = true;
+            const bindScrollTarget = (target) => {
+                let ticking = false;
+                target.addEventListener('scroll', () => {
+                    if (ticking) return;
+                    ticking = true;
+                    requestAnimationFrame(() => {
+                        ticking = false;
+                        handleOrdersInfiniteScroll();
+                    });
+                }, { passive: true });
+            };
+
+            if (ordersRenderState.boundContainer !== container) {
+                bindScrollTarget(container);
+                ordersRenderState.boundContainer = container;
+                ordersRenderState.scrollBound = true;
+            }
+
+            if (!ordersRenderState.windowScrollBound) {
+                bindScrollTarget(window);
+                ordersRenderState.windowScrollBound = true;
+            }
         }
 
         function patchRenderedOrderRow(orderId) {
@@ -4153,10 +4966,6 @@
             const tbody = document.getElementById('ordersTableBody');
             const emptyState = document.getElementById('emptyState');
             const safeColumns = getSafeColumns();
-            if (safeColumns.length !== currentColumns.length) {
-                currentColumns = safeColumns;
-                localStorage.setItem('reaksiyon_column_order', JSON.stringify(currentColumns));
-            }
 
             ordersRenderState.rows = ordersToShow;
             ordersRenderState.safeColumns = safeColumns;
@@ -4168,12 +4977,15 @@
             if (ordersToShow.length === 0) {
                 tbody.innerHTML = '';
                 emptyState.style.display = 'block';
+                syncOrdersBulkSelectionUi();
                 return;
             }
 
             emptyState.style.display = 'none';
             tbody.innerHTML = '';
             appendNextOrdersBatch();
+            fillOrdersViewportIfNeeded();
+            syncOrdersBulkSelectionUi();
         }
 
         // Toggle Detail Row - don't close others
@@ -4192,13 +5004,14 @@
 
         // Open filtered view from dashboard cards
         function openFilteredView(statusValue) {
-            if (statusValue === 'QC tekrarlanacak') {
+            const normalizedStatusValue = normalizeOrderStatus(statusValue);
+            if (normalizedStatusValue === 'Ürün QC tekrarına gitti') {
                 switchTab('qcrepeat-view');
-            } else if (statusValue === 'Etiketlendi') {
+            } else if (normalizedStatusValue === 'Ürün Etiketlendi') {
                 switchTab('etiketlendi-view');
             } else {
                 activeStatusFilters.clear();
-                activeStatusFilters.add(statusValue);
+                activeStatusFilters.add(normalizedStatusValue);
                 switchTab('vcap');
                 renderTableHeader();
             }
@@ -4253,7 +5066,7 @@
         }
 
         function setOrdersViewState(tabId) {
-            const ordersView = (tabId === 'urgent' || tabId === 'vcap' || tabId === 'liyofilize' || tabId === 'tube' || tabId === 'unmatched') ? tabId : 'orders';
+            const ordersView = (tabId === 'urgent' || tabId === 'overdue' || tabId === 'delivered' || tabId === 'vcap' || tabId === 'liyofilize' || tabId === 'tube' || tabId === 'unmatched') ? tabId : 'orders';
             document.querySelectorAll('.orders-view-btn').forEach(button => {
                 button.classList.toggle('active', button.dataset.ordersView === ordersView);
             });
@@ -4324,7 +5137,7 @@
         }
 
         function switchTab(tabId) {
-            const ordersRestrictedTabs = new Set(['orders', 'new-order', 'urgent', 'vcap', 'liyofilize', 'tube', 'unmatched', 'qc-view', 'islemde-view', 'teslim-view', 'dagitilan-view', 'qcrepeat-view', 'etiketlendi-view', 'destroyed-view', 'dashboard']);
+            const ordersRestrictedTabs = new Set(['orders', 'new-order', 'urgent', 'overdue', 'delivered', 'vcap', 'liyofilize', 'tube', 'unmatched', 'qc-view', 'islemde-view', 'teslim-view', 'dagitilan-view', 'qcrepeat-view', 'etiketlendi-view', 'destroyed-view', 'dashboard']);
             if (!canViewOrders() && ordersRestrictedTabs.has(tabId)) {
                 tabId = 'sales-lines';
             }
@@ -4399,7 +5212,7 @@
             } else {
                 // Orders Views (urgent, vcap, liyofilize, tube, orders, unmatched)
                 document.getElementById('orders').classList.add('active');
-                const nextOrdersFilter = (tabId === 'urgent' || tabId === 'vcap' || tabId === 'liyofilize' || tabId === 'tube' || tabId === 'unmatched')
+                const nextOrdersFilter = (tabId === 'urgent' || tabId === 'overdue' || tabId === 'delivered' || tabId === 'vcap' || tabId === 'liyofilize' || tabId === 'tube' || tabId === 'unmatched')
                     ? tabId
                     : 'orders';
 
@@ -4407,7 +5220,7 @@
                     resetRequestTableFiltersForViewChange();
                 }
 
-                if (tabId === 'urgent' || tabId === 'vcap' || tabId === 'liyofilize' || tabId === 'tube' || tabId === 'unmatched') {
+                if (tabId === 'urgent' || tabId === 'overdue' || tabId === 'delivered' || tabId === 'vcap' || tabId === 'liyofilize' || tabId === 'tube' || tabId === 'unmatched') {
                     activeTabFilter = nextOrdersFilter;
                 } else {
                     activeTabFilter = nextOrdersFilter;
@@ -4420,6 +5233,8 @@
                 const title = document.querySelector('#orders .card-title');
                 if (title) {
                     if (activeTabFilter === 'urgent') title.textContent = 'Acil Beklenen Talepler';
+                    else if (activeTabFilter === 'overdue') title.textContent = 'Geciken Talepler';
+                    else if (activeTabFilter === 'delivered') title.textContent = 'Teslim Edilen Talepler';
                     else if (activeTabFilter === 'vcap') title.textContent = 'vCAP Talepleri';
                     else if (activeTabFilter === 'liyofilize') title.textContent = 'Liyofilize Talepleri';
                     else if (activeTabFilter === 'tube') title.textContent = 'Tüp Format Talepleri';
@@ -4674,7 +5489,7 @@
         // QC View Render Logic
         function renderQcView(searchTerm) {
             const tbody = document.getElementById('qcViewBody');
-            let pendingOrders = orders.filter(o => o.status === 'QC Bekliyor');
+            let pendingOrders = orders.filter(o => isOrderStatus(o, 'Ürün QC ye gitti'));
 
             // Arama filtresi
             if (searchTerm) {
@@ -4732,7 +5547,7 @@
         // Destroyed View Render Logic
         function renderDestroyedView(searchTerm) {
             const tbody = document.getElementById('destroyedViewBody');
-            let items = orders.filter(o => o.status === 'İmha edilecek');
+            let items = orders.filter(o => isOrderStatus(o, 'Ürün İptal Edildi'));
 
             // Arama filtresi
             if (searchTerm) {
@@ -4776,7 +5591,7 @@
         // İşlemde View Render Logic
         function renderIslemdeView(searchTerm) {
             const tbody = document.getElementById('islemdeViewBody');
-            let items = orders.filter(o => o.status === '-' || o.status === '' || !o.status);
+            let items = orders.filter(o => isOrderStatus(o, 'Ürün İşlem Bekliyor'));
 
             // Arama filtresi
             if (searchTerm) {
@@ -4821,7 +5636,7 @@
         // Teslim Edildi View Render Logic
         function renderTeslimView(searchTerm) {
             const tbody = document.getElementById('teslimViewBody');
-            let items = orders.filter(o => o.status === 'Teslim Edildi');
+            let items = orders.filter(o => isOrderStatus(o, 'Ürün Teslim Edildi'));
 
             // Arama filtresi
             if (searchTerm) {
@@ -4863,7 +5678,7 @@
         // Dağıtılanlar View Render Logic
         function renderDagitilanView(searchTerm) {
             const tbody = document.getElementById('dagitilanViewBody');
-            let items = orders.filter(o => o.status === 'Dağıtıldı');
+            let items = orders.filter(o => isOrderStatus(o, 'Ürün Dağıtıldı'));
 
             // Arama filtresi
             if (searchTerm) {
@@ -4905,7 +5720,7 @@
         // QC Tekrar View Render Logic
         function renderQcRepeatView(searchTerm) {
             const tbody = document.getElementById('qcRepeatViewBody');
-            let items = orders.filter(o => o.status === 'QC tekrarlanacak');
+            let items = orders.filter(o => isOrderStatus(o, 'Ürün QC tekrarına gitti'));
 
             // Arama filtresi
             if (searchTerm) {
@@ -4952,7 +5767,7 @@
         // Etiketlendi View Render Logic
         function renderEtiketlendiView(searchTerm) {
             const tbody = document.getElementById('etiketlendiViewBody');
-            let items = orders.filter(o => o.status === 'Etiketlendi');
+            let items = orders.filter(o => isOrderStatus(o, 'Ürün Etiketlendi'));
 
             // Arama filtresi
             if (searchTerm) {
@@ -5367,32 +6182,25 @@
 
         function normalizeImportedStatus(value) {
             const raw = String(value || '').trim();
-            if (!raw) return '-';
-            const key = raw.toLocaleLowerCase('tr');
-            const statusMap = {
-                'işlem bekliyor': '-',
-                'islem bekliyor': '-',
-                'iptal edildi': 'İptal Edildi',
-                'İptal edildi': 'İptal Edildi',
-                'qc geçti': 'QC Geçti',
-                'qc gecti': 'QC Geçti',
-                'qc bekliyor': 'QC Bekliyor',
-                'teslim edildi': 'Teslim Edildi',
-                'etiketlendi': 'Etiketlendi',
-                'qc tekrarlanacak': 'QC tekrarlanacak',
-                'imha edilecek': 'İmha edilecek',
-                'qc gidecek': 'QC GİDECEK',
-                'dağıtıldı': 'Dağıtıldı',
-                'dagitildi': 'Dağıtıldı'
-            };
-            return statusMap[key] || raw;
+            if (!raw) return 'Ürün İşlem Bekliyor';
+            return normalizeOrderStatus(raw);
+        }
+
+        function getImportedStatusValue(rowLower) {
+            if (Object.prototype.hasOwnProperty.call(rowLower, 'durum')) {
+                return normalizeImportedStatus(getExcelValue(rowLower, ['Durum']));
+            }
+            return normalizeImportedStatus(getExcelValue(rowLower, ['QC sonuc', 'QC sonuç', 'QC Sonuç']));
         }
 
         function isDirectOrdersExcelData(jsonData) {
             return Array.isArray(jsonData) && jsonData.some(row => {
                 const rowLower = normalizeExcelRow(row);
-                return !isBlankExcelValue(getExcelValue(rowLower, ['Madde No']))
-                    && Object.prototype.hasOwnProperty.call(rowLower, 'ürün açıklaması');
+                return Object.prototype.hasOwnProperty.call(rowLower, 'ürün açıklaması')
+                    && (
+                        !isBlankExcelValue(getExcelValue(rowLower, ['Madde No']))
+                        || !isBlankExcelValue(getExcelValue(rowLower, ['Ürün Açıklaması', 'Urun Aciklamasi']))
+                    );
             });
         }
 
@@ -5401,30 +6209,34 @@
 
             jsonData.forEach((row, index) => {
                 const rowLower = normalizeExcelRow(row);
-                const materialNo = String(getExcelValue(rowLower, ['Madde No']) || '').trim();
-                if (!materialNo) return;
+                const resolvedIdentity = completeOrderIdentityFromProductTree(
+                    getExcelValue(rowLower, ['Madde No']),
+                    getExcelValue(rowLower, ['Ürün Açıklaması', 'Urun Aciklamasi'])
+                );
+                const materialNo = resolvedIdentity.materialNo;
+                const rxnName = resolvedIdentity.rxnName;
+                if (!materialNo && !rxnName) return;
 
                 const weekNumber = getExcelRowWeek(rowLower, targetWeek);
                 const requestDate = parseExcelDateOnly(getExcelValue(rowLower, ['Tarih', 'Talep Tarihi'])) || new Date().toISOString().split('T')[0];
-                const plannedStartDate = parseExcelDateOnly(getExcelValue(rowLower, ['Planlanan Başlangıç', 'Planlanan Baslangic']));
-                const plannedEndDate = parseExcelDateOnly(getExcelValue(rowLower, ['Planlanan Bitiş', 'Planlanan Bitis']));
-                const statusValue = getExcelValue(rowLower, ['Durum']) || getExcelValue(rowLower, ['QC sonuc', 'QC sonuç', 'QC Sonuç']);
+                const plannedEndDate = addDaysToDateOnly(requestDate, 14) || '';
+                const statusValue = getImportedStatusValue(rowLower);
 
                 const beforeLength = orders.length;
                 createOrderEntry({
                     weekNumber,
                     requestDate,
                     materialNo,
-                    catalogNo: '',
-                    rxnName: String(getExcelValue(rowLower, ['Ürün Açıklaması', 'Urun Aciklamasi']) || '').trim(),
-                    format: getExcelValue(rowLower, ['Format']),
+                    catalogNo: resolvedIdentity.catalogNo || '',
+                    rxnName,
+                    format: getExcelValue(rowLower, ['Format']) || resolvedIdentity.format,
                     requesterNote: getExcelValue(rowLower, ['Talep Geçen Not', 'Talep Gecen Not']),
+                    distributionNote: getExcelValue(rowLower, ['Dağıtım Yapanın Notu', 'Dagitim Yapanin Notu']),
                     quantity: parseExcelNumber(getExcelValue(rowLower, ['Planlanan Miktar (Rack)'])),
                     plannedRxnQty: parseExcelNumber(getExcelValue(rowLower, ['Planlanan Miktar (Rxn)'])),
                     plannedWellQty: parseExcelNumber(getExcelValue(rowLower, ['Planlanan (well)', 'Planlanan Well'])),
                     requester: '',
                     producer: getExcelValue(rowLower, ['Sorumlu Kişi', 'Sorumlu Kisi']),
-                    plannedStartDate,
                     plannedEndDate,
                     deliveryDate: plannedEndDate,
                     producedQty: parseExcelNumber(getExcelValue(rowLower, ['Gerçekleşen Miktar (Rack)', 'Gerceklesen Miktar (Rack)'])),
@@ -5432,10 +6244,10 @@
                     actualWellQty: parseExcelNumber(getExcelValue(rowLower, ['Gerçekleşen Miktar (well)', 'Gerceklesen Miktar (well)'])),
                     productionOrderNo: getExcelValue(rowLower, ['SBUE No']),
                     lotNo: getExcelValue(rowLower, ['Lot No']),
-                    status: normalizeImportedStatus(statusValue),
+                    status: statusValue,
                     qcApprover: getExcelValue(rowLower, ['QC Onaylayan']),
                     sourceSystem: 'orders-excel',
-                    sourceExternalId: `${weekNumber || ''}|${requestDate}|${materialNo}|${index + 1}`
+                    sourceExternalId: `${weekNumber || ''}|${requestDate}|${materialNo || rxnName}|${index + 1}`
                 });
                 if (orders.length > beforeLength) addedCount++;
             });
@@ -5544,17 +6356,17 @@
                 quantity: data.quantity,
                 plannedRxnQty: data.plannedRxnQty ?? null,
                 plannedWellQty: data.plannedWellQty ?? null,
-                plannedStartDate: data.plannedStartDate || '',
-                plannedEndDate: data.plannedEndDate || '',
+                plannedEndDate: data.plannedEndDate || addDaysToDateOnly(data.requestDate || new Date().toISOString().split('T')[0], 14) || '',
                 orderNo: data.orderNo || '',
                 country: data.country || '',
                 deliveryDate: data.deliveryDate || addDaysToDateOnly(data.requestDate || new Date().toISOString().split('T')[0], 21) || '',
                 lotNo: data.lotNo || '',
-                status: data.status || '-', // Default status as requested
+                status: normalizeOrderStatus(data.status),
                 requesterNote: data.requesterNote || '',
+                distributionNote: data.distributionNote || '',
                 team1Note: data.team1Note || '',
                 team2Note: data.team2Note || '',
-                producer: '',
+                producer: data.producer || '',
                 producedQty: data.producedQty ?? null,
                 actualRxnQty: data.actualRxnQty ?? null,
                 actualWellQty: data.actualWellQty ?? null,
@@ -5566,6 +6378,7 @@
                 changeHistory: [],
                 linkedSalesOrderIds: Array.isArray(data.linkedSalesOrderIds) ? data.linkedSalesOrderIds : [],
                 sourceSystem: data.sourceSystem || '',
+                salesLineRequestMode: data.salesLineRequestMode || '',
                 sourceExternalId: data.sourceExternalId || ''
             };
             orders.unshift(newOrder); // Add to top
@@ -5585,14 +6398,14 @@
                 quantity: 0,
                 plannedRxnQty: null,
                 plannedWellQty: null,
-                plannedStartDate: '',
-                plannedEndDate: '',
+                plannedEndDate: addDaysToDateOnly(new Date().toISOString().split('T')[0], 14) || '',
                 orderNo: '',
                 country: '',
                 deliveryDate: '',
                 lotNo: '',
-                status: '-',
+                status: 'Ürün İşlem Bekliyor',
                 requesterNote: '',
+                distributionNote: '',
                 team1Note: '',
                 team2Note: '',
                 producer: '',
@@ -5626,6 +6439,13 @@
             if (!order) return;
 
             document.getElementById('detailId').value = id;
+            const detailModal = document.getElementById('detailModal');
+            if (detailModal) {
+                const baseMeta = getOrderBaseMeta(order);
+                detailModal.dataset.baseVersion = String(baseMeta.version || 0);
+                detailModal.dataset.baseUpdatedAt = baseMeta.updatedAt || '';
+                detailModal.dataset.baseHistoryLength = String(baseMeta.changeHistoryLength || 0);
+            }
 
             // Populate info grid
             const infoGrid = document.getElementById('detailInfoGrid');
@@ -5664,7 +6484,7 @@
             document.getElementById('detailProducer').value = order.producer || '';
             document.getElementById('detailProducedQty').value = order.producedQty || '';
             document.getElementById('detailQcApprover').value = order.qcApprover || '';
-            document.getElementById('detailStatus').value = order.status;
+            document.getElementById('detailStatus').value = normalizeOrderStatus(order.status);
 
             document.getElementById('detailModal').classList.add('active');
         }
@@ -5682,6 +6502,12 @@
             if (orderIndex === -1) return;
 
             const order = orders[orderIndex];
+            const detailModal = document.getElementById('detailModal');
+            const baseMeta = {
+                version: Number(detailModal?.dataset.baseVersion || 0) || 0,
+                updatedAt: detailModal?.dataset.baseUpdatedAt || '',
+                changeHistoryLength: Number(detailModal?.dataset.baseHistoryLength || 0) || 0
+            };
             if (!order.changeHistory) order.changeHistory = [];
             const changedBy = getActiveUserParaf('Bilinmiyor');
             const changedAt = new Date().toISOString();
@@ -5705,11 +6531,13 @@
                 { key: 'status', label: 'Durum', el: 'detailStatus' }
             ];
             detailFields.forEach(f => {
-                const newVal = document.getElementById(f.el).value;
-                if (String(order[f.key] || '') !== String(newVal)) {
+                let newVal = document.getElementById(f.el).value;
+                if (f.key === 'status') newVal = normalizeOrderStatus(newVal);
+                const oldVal = f.key === 'status' ? normalizeOrderStatus(order[f.key]) : order[f.key];
+                if (String(oldVal || '') !== String(newVal)) {
                     order.changeHistory.push({
                         field: f.label,
-                        oldValue: order[f.key] || '',
+                        oldValue: oldVal || '',
                         newValue: newVal,
                         changedBy, changedAt
                     });
@@ -5754,11 +6582,11 @@
             order.producer = document.getElementById('detailProducer').value;
             order.producedQty = newProducedQty;
             order.qcApprover = document.getElementById('detailQcApprover').value;
-            order.status = document.getElementById('detailStatus').value;
+            order.status = normalizeOrderStatus(document.getElementById('detailStatus').value);
             order.lastModifiedBy = getActiveUserParaf(order.lastModifiedBy || '');
             order.lastModifiedAt = new Date().toISOString();
 
-            saveOrders();
+            scheduleRequestOrderSave(id, baseMeta, { reason: 'request-detail-edit' });
             renderDashboard();
             applyRequestFilters();
             closeDetailModal();
@@ -5773,10 +6601,18 @@
             }
             if (!confirm('Bu talebi silmek istediğinizden emin misiniz?')) return;
 
+            const order = orders.find(o => String(o.id) === String(id));
+            const baseMeta = getOrderBaseMeta(order);
             orders = orders.filter(o => String(o.id) !== String(id));
-            saveOrders();
+            selectedOrderIds.delete(String(id));
+            saveOrders({
+                reason: 'request-delete',
+                deletedOrderIds: [String(id)],
+                rowBaseMeta: { [String(id)]: baseMeta }
+            });
             renderDashboard();
             applyRequestFilters();
+            syncOrdersBulkSelectionUi();
             showToast('Talep silindi!', 'warning');
         }
 
@@ -5850,6 +6686,8 @@
         function updateStatus(id, newStatus) {
             const orderIndex = orders.findIndex(o => o.id === id);
             if (orderIndex === -1) return;
+            newStatus = normalizeOrderStatus(newStatus);
+            const baseMeta = getOrderBaseMeta(orders[orderIndex]);
 
             // Scroll pozisyonunu kaydet
             const tbodyEl = document.getElementById('ordersTableBody');
@@ -5860,10 +6698,11 @@
 
             // Değişiklik geçmişi kaydet
             if (!orders[orderIndex].changeHistory) orders[orderIndex].changeHistory = [];
-            if (orders[orderIndex].status !== newStatus) {
+            const oldStatus = normalizeOrderStatus(orders[orderIndex].status);
+            if (oldStatus !== newStatus) {
                 orders[orderIndex].changeHistory.push({
                     field: 'Durum',
-                    oldValue: orders[orderIndex].status || '-',
+                    oldValue: oldStatus,
                     newValue: newStatus,
                     changedBy: getActiveUserParaf('Bilinmiyor'),
                     changedAt: new Date().toISOString()
@@ -5873,7 +6712,7 @@
             orders[orderIndex].status = newStatus;
             orders[orderIndex].lastModifiedBy = getActiveUserParaf(orders[orderIndex].lastModifiedBy || '');
             orders[orderIndex].lastModifiedAt = new Date().toISOString();
-            saveOrders();
+            scheduleRequestOrderSave(id, baseMeta, { reason: 'request-status-edit' });
             renderDashboard();
             applyRequestFilters();
             renderWeekSidebar();
@@ -5918,29 +6757,42 @@
 
         // Helper Functions
         function getStatusBadge(status) {
+            const normalizedStatus = normalizeOrderStatus(status);
             const statusMap = {
-                'QC Bekliyor': 'qc-bekliyor',
-                'Teslim Edildi': 'teslim-edildi',
-                'QC tekrarlanacak': 'qc-tekrar',
-                'İmha edilecek': 'imha',
-                'QC GİDECEK': 'qc-gidecek',
+                'Ürün İşlem Bekliyor': '',
+                'Ürün Oligo Bekliyor': 'qc-bekliyor',
+                'Ürün Planlandı': 'qc-bekliyor',
+                'Ürün Dağıtıldı': 'qc-gidecek',
+                'Ürün QC ye gitti': 'qc-bekliyor',
+                'Ürün QC tekrarına gitti': 'qc-tekrar',
+                'Ürün QC den Geçmedi': 'imha',
+                'Ürün Revizyon bekliyor': 'qc-tekrar',
+                'Ürün Etiketlendi': 'qc-gidecek',
+                'Ürün Teslim Edildi': 'teslim-edildi',
+                'Ürün İptal Edildi': 'imha',
                 'Ürün Lojistikte': 'qc-gidecek',
                 'Ürün Çıktı': 'teslim-edildi',
                 '-': '' // Default neutral style
             };
 
             const iconMap = {
-                'QC Bekliyor': 'â³',
-                'Teslim Edildi': 'OK',
-                'QC tekrarlanacak': '!',
-                'İmha edilecek': '!',
-                'QC GİDECEK': 'QC',
+                'Ürün İşlem Bekliyor': '',
+                'Ürün Oligo Bekliyor': '...',
+                'Ürün Planlandı': 'P',
+                'Ürün Dağıtıldı': 'D',
+                'Ürün QC ye gitti': 'QC',
+                'Ürün QC tekrarına gitti': '!',
+                'Ürün QC den Geçmedi': '!',
+                'Ürün Revizyon bekliyor': 'R',
+                'Ürün Etiketlendi': 'E',
+                'Ürün Teslim Edildi': 'OK',
+                'Ürün İptal Edildi': '!',
                 'Ürün Lojistikte': 'â†’',
                 'Ürün Çıktı': 'OK',
                 '-': ''
             };
 
-            return `<span class="status-badge ${statusMap[status] || ''}">${iconMap[status] || ''} ${status}</span>`;
+            return `<span class="status-badge ${statusMap[normalizedStatus] || ''}">${iconMap[normalizedStatus] || ''} ${normalizedStatus}</span>`;
         }
 
         function formatDate(dateStr) {
@@ -6223,6 +7075,8 @@
             // Determine filename based on context
             let filename = 'Tum_Talepler.xlsx';
             if (activeTabFilter === 'urgent') filename = 'Acil_Beklenen_Talepler.xlsx';
+            else if (activeTabFilter === 'overdue') filename = 'Geciken_Talepler.xlsx';
+            else if (activeTabFilter === 'delivered') filename = 'Teslim_Edilen_Talepler.xlsx';
             else if (activeTabFilter === 'vcap') filename = 'vCAP_Talepleri.xlsx';
             else if (activeTabFilter === 'liyofilize') filename = 'Liyofilize_Talepleri.xlsx';
             else if (activeTabFilter === 'tube') filename = 'Tup_Talepleri.xlsx';
@@ -6238,6 +7092,10 @@
 
                 if (activeTabFilter === 'urgent') {
                     if (!isUrgentExpectedOrder(order)) return false;
+                } else if (activeTabFilter === 'overdue') {
+                    if (!isOverdueRequestOrder(order)) return false;
+                } else if (activeTabFilter === 'delivered') {
+                    if (!isDeliveredRequestOrder(order)) return false;
                 } else if (activeTabFilter === 'vcap') {
                     if (tabBucket !== 'vcap' || unmatched) return false;
                 } else if (activeTabFilter === 'liyofilize') {
@@ -6247,6 +7105,7 @@
                 } else if (activeTabFilter === 'unmatched') {
                     if (!unmatched) return false;
                 }
+                if (isDeliveredRequestOrder(order) && activeTabFilter !== 'delivered') return false;
                 return true;
             });
 
@@ -6270,7 +7129,7 @@
                 'plannedRxnQty': { label: 'Planlanan Miktar (Rxn)', wch: 18, format: v => v || '' },
                 'plannedWellQty': { label: 'Planlanan (well)', wch: 16, format: v => v || '' },
                 'producer': { label: 'Sorumlu Kişi', wch: 14, format: v => v || '' },
-                'plannedStartDate': { label: 'Planlanan Başlangıç', wch: 18, format: v => v ? formatDate(v) : '-' },
+                'distributionNote': { label: 'Dağıtım Yapanın Notu', wch: 24, format: v => v || '' },
                 'plannedEndDate': { label: 'Planlanan Bitiş', wch: 16, format: v => v ? formatDate(v) : '-' },
                 'producedQty': { label: 'Gerçekleşen Miktar (Rack)', wch: 20, format: v => v || '' },
                 'actualRxnQty': { label: 'Gerçekleşen Miktar (Rxn)', wch: 20, format: v => v || '' },
@@ -6278,7 +7137,7 @@
                 'lotNo': { label: 'Lot No', wch: 20, format: v => v || '' },
                 'productionOrderNo': { label: 'SBUE No', wch: 18, format: v => v || '' },
                 'producerNote': { label: '?retim Yapan Ekibin Notu', wch: 25, format: v => v || '' },
-                'status': { label: 'Durum', wch: 15, format: v => v || '' },
+                'status': { label: 'Durum', wch: 22, format: v => normalizeOrderStatus(v) },
                 'qcApprover': { label: 'QC Onaylayan', wch: 14, format: v => v || '' },
                 'lastModifiedBy': { label: 'De?i?tiren', wch: 10, format: v => v || '' }
             };

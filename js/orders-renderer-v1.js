@@ -3,11 +3,35 @@ window.ReaksiyonOrdersRenderer = {
         const formatDate = deps.formatDate || (value => value || '');
         const resolveOrderFormat = deps.resolveOrderFormat || (() => '');
         const formatDateTimeShort = deps.formatDateTimeShort || (value => value || '');
-        const statusClass = order.status ? `row-${order.status.replace(/ /g, '-')}` : '';
+        const normalizeStatus = deps.normalizeOrderStatus || (value => {
+            const raw = String(value || '').trim();
+            if (!raw || raw === '-') return 'Ürün İşlem Bekliyor';
+            return raw;
+        });
+        const statusOptions = deps.orderStatusOptions || [
+            'Ürün İşlem Bekliyor',
+            'Ürün Oligo Bekliyor',
+            'Ürün Planlandı',
+            'Ürün Dağıtıldı',
+            'Ürün QC ye gitti',
+            'Ürün QC tekrarına gitti',
+            'Ürün QC den Geçmedi',
+            'Ürün Revizyon bekliyor',
+            'Ürün Etiketlendi',
+            'Ürün Teslim Edildi',
+            'Ürün İptal Edildi'
+        ];
+        const isOrderBulkSelected = typeof deps.isOrderBulkSelected === 'function' ? deps.isOrderBulkSelected : () => false;
+        const currentStatus = normalizeStatus(order.status);
+        const statusClass = currentStatus ? `row-${currentStatus.replace(/ /g, '-')}` : '';
+        const selectedAttr = isOrderBulkSelected(order.id) ? ' checked' : '';
         let rowHtml = `<tr class="${statusClass}" data-order-id="${order.id}">`;
 
         rowHtml += `
             <td class="expand-icon-cell">
+                <input type="checkbox" class="orders-row-checkbox" data-order-id="${order.id}"${selectedAttr}
+                    onclick="event.stopPropagation(); toggleOrderBulkSelection('${order.id}', this.checked)"
+                    aria-label="Satır seç">
                 <div class="row-menu-container">
                     <button class="row-menu-btn" onclick="event.stopPropagation(); toggleRowMenu('${order.id}')">...</button>
                     <div id="menu-${order.id}" class="row-menu-dropdown">
@@ -32,21 +56,12 @@ window.ReaksiyonOrdersRenderer = {
             } else if (col.type === 'status') {
                 cellContent = `
                 <select class="inline-status" onchange="updateStatus('${order.id}', this.value)" style="min-width: 130px; padding: 2px;" onclick="event.stopPropagation()">
-                    <option value="-" ${order.status === '-' ? 'selected' : ''}>İşlem Bekliyor</option>
-                    <option value="QC Bekliyor" ${order.status === 'QC Bekliyor' ? 'selected' : ''}>QC Bekliyor</option>
-                    <option value="QC Geçti" ${order.status === 'QC Geçti' ? 'selected' : ''}>QC Geçti</option>
-                    <option value="Teslim Edildi" ${order.status === 'Teslim Edildi' ? 'selected' : ''}>Teslim Edildi</option>
-                    <option value="Etiketlendi" ${order.status === 'Etiketlendi' ? 'selected' : ''}>Etiketlendi</option>
-                    <option value="QC tekrarlanacak" ${order.status === 'QC tekrarlanacak' ? 'selected' : ''}>QC Tekrar</option>
-                    <option value="İmha edilecek" ${order.status === 'İmha edilecek' ? 'selected' : ''}>İmha</option>
-                    <option value="QC GİDECEK" ${order.status === 'QC GİDECEK' ? 'selected' : ''}>QC Gidecek</option>
-                    <option value="Dağıtıldı" ${order.status === 'Dağıtıldı' ? 'selected' : ''}>Dağıtıldı</option>
-                    <option value="İptal Edildi" ${order.status === 'İptal Edildi' ? 'selected' : ''}>İptal Edildi</option>
+                    ${statusOptions.map(status => `<option value="${status}" ${currentStatus === status ? 'selected' : ''}>${status}</option>`).join('')}
                 </select>`;
             }
 
             let clickAction = '';
-            if (col.type !== 'status') {
+            if (col.type !== 'status' && col.editable) {
                 clickAction = `onclick="event.stopPropagation(); makeEditable(this, '${order.id}', '${col.id}', '${col.type}')"`;
             }
 
@@ -58,18 +73,11 @@ window.ReaksiyonOrdersRenderer = {
             rowHtml += `<td ${clickAction} style="${style}" class="${wrapClass}">${cellContent}</td>`;
         });
 
-        rowHtml += `
-            <td class="modified-by-cell" onclick="event.stopPropagation(); showChangeHistory('${order.id}')" style="cursor:pointer;" title="Değişiklik geçmişini aç">
-                ${order.lastModifiedBy || '-'}
-            </td>
-            <td class="modified-by-cell" onclick="event.stopPropagation(); showChangeHistory('${order.id}')" style="cursor:pointer;" title="Değişiklik geçmişini aç">
-                ${formatDateTimeShort(order.lastModifiedAt || (Array.isArray(order.changeHistory) && order.changeHistory.length > 0 ? order.changeHistory[order.changeHistory.length - 1].changedAt : ''))}
-            </td>
-        </tr>`;
+        rowHtml += '</tr>';
 
         rowHtml += `
         <tr id="detail-${order.id}" class="detail-row">
-            <td colspan="${safeColumns.length + 3}" class="detail-content">
+            <td colspan="${safeColumns.length + 1}" class="detail-content">
                 <div class="detail-grid">
                     <div class="detail-item">
                         <label>QC Onaylayan</label>

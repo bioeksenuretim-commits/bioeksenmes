@@ -9,7 +9,8 @@ if (typeof orders === 'undefined') {
 let filteredOrders = [];
 
 function isDerivedSalesLineOrder(order) {
-    return !!(order && order.sourceSystem === 'sales-lines');
+    if (!order || order.sourceSystem !== 'sales-lines') return false;
+    return order.salesLineRequestMode !== 'manual';
 }
 
 function getPersistableOrders() {
@@ -254,7 +255,7 @@ async function initializeApp() {
         }
 
         pagination = new PaginationManager({
-            itemsPerPage: 50,
+            itemsPerPage: 80,
             onPageChange: () => {
                 renderCurrentView();
             }
@@ -296,12 +297,43 @@ function overrideRenderOrders() {
 
     window.renderOrders = function (filteredOrdersParam = null) {
         const ordersToRender = filteredOrdersParam || filteredOrders || orders;
-        pagination.setTotalItems(ordersToRender.length);
-        const pageData = pagination.getCurrentPageData(ordersToRender);
-        originalRenderOrders(pageData);
-        pagination.renderPagination('paginationContainer');
+        if (pagination) pagination.setTotalItems(ordersToRender.length);
+        originalRenderOrders(ordersToRender);
         addCheckboxListeners();
     };
+}
+
+function getInitNormalizedStatus(order) {
+    return String(order?.status || '').trim().toLocaleLowerCase('tr');
+}
+
+function isInitDeliveredOrder(order) {
+    const status = getInitNormalizedStatus(order);
+    return status === 'teslim edildi' || status.includes('teslim edildi');
+}
+
+function isInitClosedOrder(order) {
+    const status = getInitNormalizedStatus(order);
+    return status === 'teslim edildi' || status === 'iptal edildi';
+}
+
+function getInitDeliveryDateOnly(order) {
+    if (!order?.deliveryDate) return null;
+    const date = new Date(order.deliveryDate);
+    if (isNaN(date.getTime())) return null;
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function isInitExpectedOrder(order) {
+    return !!order && !isInitClosedOrder(order);
+}
+
+function isInitOverdueOrder(order) {
+    const date = getInitDeliveryDateOnly(order);
+    if (!date || isInitClosedOrder(order)) return false;
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    return date.getTime() < todayStart.getTime();
 }
 
 function applyFiltersWithPagination() {
@@ -329,7 +361,7 @@ function renderCurrentView() {
 
     const tabId = activeTab.getAttribute('data-tab');
 
-    if (tabId === 'vcap' || tabId === 'liyofilize' || tabId === 'tube' || tabId === 'orders') {
+    if (tabId === 'urgent' || tabId === 'overdue' || tabId === 'delivered' || tabId === 'vcap' || tabId === 'liyofilize' || tabId === 'tube' || tabId === 'orders') {
         applyFiltersWithPagination();
     } else if (tabId === 'dashboard') {
         renderDashboard();
@@ -363,7 +395,15 @@ function applyFiltersWithPagination() {
             return note.includes('karşılığı olmayan') || note.includes('karsiligi olmayan');
         };
 
-        if (activeTabFilter === 'vcap') {
+        const hasSearch = !!String(document.getElementById('globalSearch')?.value || '').trim();
+
+        if (activeTabFilter === 'urgent') {
+            baseOrders = orders.filter(order => typeof isUrgentExpectedOrder === 'function' ? isUrgentExpectedOrder(order) : isInitExpectedOrder(order));
+        } else if (activeTabFilter === 'overdue') {
+            baseOrders = orders.filter(order => isInitOverdueOrder(order));
+        } else if (activeTabFilter === 'delivered') {
+            baseOrders = orders.filter(order => isInitDeliveredOrder(order));
+        } else if (activeTabFilter === 'vcap') {
             baseOrders = orders.filter(order => getBucket(order) === 'vcap' && !isUnmatched(order));
         } else if (activeTabFilter === 'liyofilize') {
             baseOrders = orders.filter(order => getBucket(order) === 'liyofilize' && !isUnmatched(order));
@@ -371,6 +411,8 @@ function applyFiltersWithPagination() {
             baseOrders = orders.filter(order => getBucket(order) === 'tube' && !isUnmatched(order));
         } else if (activeTabFilter === 'unmatched') {
             baseOrders = orders.filter(order => isUnmatched(order));
+        } else if (!hasSearch) {
+            baseOrders = orders.filter(order => !isInitDeliveredOrder(order));
         }
     }
 
@@ -405,7 +447,7 @@ function addCheckboxListeners() {
 }
 
 const originalSaveOrders = window.saveOrders;
-window.saveOrders = async function () {
+window.saveOrders = async function (options = {}) {
     const persistableOrders = getPersistableOrders();
     await storage.saveAll(persistableOrders);
 
@@ -418,7 +460,20 @@ window.saveOrders = async function () {
         if (navigator.onLine) {
             try {
                 if (typeof setSyncStatus === 'function') setSyncStatus('syncing');
-                await firebaseSync.syncOrderDiff(Array.isArray(orders) ? orders : persistableOrders, { reason: 'save_orders' });
+                if ((Array.isArray(options.changedOrderIds) && options.changedOrderIds.length > 0)
+                    || (Array.isArray(options.deletedOrderIds) && options.deletedOrderIds.length > 0)) {
+                    const result = await firebaseSync.syncOrderRowsPatch(Array.isArray(orders) ? orders : persistableOrders, {
+                        reason: options.reason || 'save_orders_patch',
+                        changedOrderIds: options.changedOrderIds || [],
+                        deletedOrderIds: options.deletedOrderIds || [],
+                        rowBaseMeta: options.rowBaseMeta || {}
+                    });
+                    if (result && typeof result === 'object' && Array.isArray(result.conflicts) && result.conflicts.length > 0) {
+                        if (typeof handleOrderSyncConflicts === 'function') handleOrderSyncConflicts(result.conflicts);
+                    }
+                } else {
+                    await firebaseSync.syncOrderDiff(Array.isArray(orders) ? orders : persistableOrders, { reason: options.reason || 'save_orders' });
+                }
             } catch (error) {
                 if (typeof offlineManager !== 'undefined') {
                     const cache = firebaseSync.orderCache || new Map();

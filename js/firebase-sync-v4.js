@@ -16,6 +16,7 @@ var firebaseSync = {
     salesLinesRowsRef: null,
     salesLinesEditedLogRef: null,
     salesLinesMetaRef: null,
+    salesLinesTodayOutputsRef: null,
     auditLogsRef: null,
     isListening: false,
     isProductTreeListening: false,
@@ -32,6 +33,7 @@ var firebaseSync = {
     salesLinesRowsCache: new Map(),
     salesLinesEditedLogCache: new Map(),
     salesLinesMetaCache: null,
+    salesLinesTodayOutputsCache: { dateKey: '', rowIds: {}, meta: {} },
     salesLinesEmitTimer: null,
     pendingOrdersSnapshot: null,
     pendingOrdersRenderTimer: null,
@@ -57,6 +59,7 @@ var firebaseSync = {
         this.salesLinesRowsRef = firebase.database().ref('salesLines/v2/rows');
         this.salesLinesEditedLogRef = firebase.database().ref('salesLines/v2/editedLog');
         this.salesLinesMetaRef = firebase.database().ref('salesLines/v2/meta');
+        this.salesLinesTodayOutputsRef = firebase.database().ref('salesLines/v2/todayOutputs');
         this.auditLogsRef = firebase.database().ref('auditLogs');
         console.log('Firebase Sync başlatıldı');
     },
@@ -82,6 +85,56 @@ var firebaseSync = {
         return new Date().toISOString();
     },
 
+    getSalesLinesTodayOutputDateKey(date = new Date()) {
+        const value = date instanceof Date ? date : new Date(date);
+        if (!(value instanceof Date) || isNaN(value.getTime())) return new Date().toISOString().slice(0, 10);
+        return [
+            value.getFullYear(),
+            String(value.getMonth() + 1).padStart(2, '0'),
+            String(value.getDate()).padStart(2, '0')
+        ].join('-');
+    },
+
+    normalizeTodayOutputsPayload(payload = {}) {
+        const dateKey = String(payload.dateKey || this.getSalesLinesTodayOutputDateKey()).slice(0, 10);
+        const rowIds = {};
+        if (Array.isArray(payload.rowIds)) {
+            payload.rowIds.forEach(id => {
+                const key = String(id || '').trim();
+                if (key) rowIds[this.encodeDatabaseKey(key)] = true;
+            });
+        } else if (payload.rowIds && typeof payload.rowIds === 'object') {
+            Object.entries(payload.rowIds).forEach(([id, value]) => {
+                if (!value) return;
+                const key = String(id || '').trim();
+                if (key) rowIds[this.encodeDatabaseKey(key)] = true;
+            });
+        }
+        return {
+            dateKey,
+            rowIds,
+            meta: this.cloneData(payload.meta || {})
+        };
+    },
+
+    parseTodayOutputsNode(dateKey, value = {}) {
+        const rowIds = {};
+        Object.entries(value?.rowIds || {}).forEach(([id, enabled]) => {
+            if (enabled) rowIds[id] = true;
+        });
+        return {
+            dateKey: String(dateKey || this.getSalesLinesTodayOutputDateKey()),
+            rowIds,
+            meta: this.cloneData(value?.meta || {})
+        };
+    },
+
+    getTodayOutputRowIdsFromCache() {
+        return Object.entries(this.salesLinesTodayOutputsCache?.rowIds || {})
+            .filter(([, enabled]) => !!enabled)
+            .map(([id]) => id);
+    },
+
     getOrderTime(order, field = 'updatedAt') {
         const value = order?.[field] || order?.lastModifiedAt || order?.createdAt || '';
         const time = value ? new Date(value).getTime() : 0;
@@ -98,13 +151,20 @@ var firebaseSync = {
         const next = this.cloneData(order);
         const now = options.timestamp || this.nowIso();
         const actor = this.getCurrentActor();
-        const previousVersion = Number(previousOrder?.version || 0);
-        const currentVersion = Number(next.version || 0);
+        const previousVersion = Number(previousOrder?._sync?.version || previousOrder?.version || 0);
+        const currentVersion = Number(next._sync?.version || next.version || 0);
+        const nextVersion = Math.max(previousVersion, currentVersion) + 1;
 
         next.id = String(next.id);
-        next.version = Math.max(previousVersion, currentVersion) + 1;
+        next._sync = {
+            version: nextVersion,
+            updatedAt: now,
+            updatedByUid: actor.uid || null,
+            updatedByParaf: actor.paraf || actor.uid || 'unknown'
+        };
+        next.version = nextVersion;
         next.updatedAt = now;
-        next.updatedBy = actor.paraf || actor.uid || 'unknown';
+        next.updatedBy = next._sync.updatedByParaf;
         next.updatedByUid = actor.uid || null;
         return next;
     },
@@ -114,7 +174,8 @@ var firebaseSync = {
 
         const now = options.timestamp || this.nowIso();
         const actor = this.getCurrentActor();
-        const previousVersion = Number(previousOrder?.version || 0);
+        const previousVersion = Number(previousOrder?._sync?.version || previousOrder?.version || 0);
+        const nextVersion = previousVersion + 1;
 
         return {
             ...(previousOrder || {}),
@@ -126,7 +187,23 @@ var firebaseSync = {
             updatedAt: now,
             updatedBy: actor.paraf || actor.uid || 'unknown',
             updatedByUid: actor.uid || null,
-            version: previousVersion + 1
+            _sync: {
+                version: nextVersion,
+                updatedAt: now,
+                updatedByUid: actor.uid || null,
+                updatedByParaf: actor.paraf || actor.uid || 'unknown'
+            },
+            version: nextVersion
+        };
+    },
+
+    getOrderSyncMeta(order) {
+        const sync = order?._sync && typeof order._sync === 'object' ? order._sync : {};
+        return {
+            version: Number(sync.version || order?.version || 0) || 0,
+            updatedAt: String(sync.updatedAt || order?.updatedAt || order?.lastModifiedAt || ''),
+            updatedByUid: sync.updatedByUid || order?.updatedByUid || null,
+            updatedByParaf: sync.updatedByParaf || order?.updatedBy || order?.lastModifiedBy || ''
         };
     },
 
@@ -218,14 +295,26 @@ var firebaseSync = {
 
     buildOrderRowEntry(order, index = 0) {
         const row = this.cloneData(order || {});
-        const updatedAt = row.updatedAt || row.lastModifiedAt || row.createdAt || new Date().toISOString();
+        const sync = row._sync && typeof row._sync === 'object' ? row._sync : {};
+        const updatedAt = sync.updatedAt || row.updatedAt || row.lastModifiedAt || row.createdAt || new Date().toISOString();
+        const version = Number(sync.version || row.version || 0) || 1;
+        row._sync = {
+            version,
+            updatedAt,
+            updatedByUid: sync.updatedByUid || row.updatedByUid || null,
+            updatedByParaf: sync.updatedByParaf || row.updatedBy || row.lastModifiedBy || ''
+        };
+        row.version = version;
+        row.updatedAt = updatedAt;
+        row.updatedByUid = row._sync.updatedByUid;
+        row.updatedBy = row._sync.updatedByParaf;
         return {
             index,
             orderJson: JSON.stringify(row),
             orderUpdatedAt: updatedAt,
-            orderUpdatedBy: row.updatedBy || row.lastModifiedBy || '',
-            orderUpdatedByUid: row.updatedByUid || null,
-            orderVersion: Number(row.version || 0) || 1
+            orderUpdatedBy: row._sync.updatedByParaf || '',
+            orderUpdatedByUid: row._sync.updatedByUid || null,
+            orderVersion: version
         };
     },
 
@@ -239,6 +328,29 @@ var firebaseSync = {
             }
         }
         return this.cloneData(entry.data || entry);
+    },
+
+    getOrderRowEntryVersion(entry) {
+        const order = this.parseOrderRowEntry(entry);
+        const version = Number(entry?.orderVersion || order?._sync?.version || order?.version || 0);
+        return Number.isFinite(version) ? version : 0;
+    },
+
+    buildOrderConflict(id, type, localOrder, currentEntry, baseMeta = {}) {
+        const remoteOrder = this.parseOrderRowEntry(currentEntry);
+        return {
+            id,
+            type,
+            localOrder: this.cloneData(localOrder || {}),
+            remoteOrder: this.cloneData(remoteOrder || {}),
+            baseMeta: this.cloneData(baseMeta || {}),
+            remoteMeta: {
+                version: this.getOrderRowEntryVersion(currentEntry),
+                updatedAt: currentEntry?.orderUpdatedAt || remoteOrder?._sync?.updatedAt || remoteOrder?.updatedAt || remoteOrder?.lastModifiedAt || '',
+                updatedBy: currentEntry?.orderUpdatedBy || remoteOrder?._sync?.updatedByParaf || remoteOrder?.updatedBy || remoteOrder?.lastModifiedBy || ''
+            },
+            conflictedAt: new Date().toISOString()
+        };
     },
 
     buildOrdersSnapshotFromRows(rowsValue = null) {
@@ -302,6 +414,92 @@ var firebaseSync = {
             .replace(/[.#$[\]/]/g, char => `_x${char.charCodeAt(0).toString(16)}_`) || 'empty';
     },
 
+    normalizeSalesLineIdentityValue(value) {
+        return String(value ?? '').trim().toLocaleUpperCase('tr-TR');
+    },
+
+    getSalesLineIdentityField(row, aliases) {
+        for (const key of aliases) {
+            const value = row?.[key];
+            if (value !== undefined && value !== null && String(value).trim() !== '') return value;
+        }
+        return '';
+    },
+
+    simpleSalesLineHash(value) {
+        let hash = 2166136261;
+        const text = String(value || '');
+        for (let i = 0; i < text.length; i += 1) {
+            hash ^= text.charCodeAt(i);
+            hash = Math.imul(hash, 16777619);
+        }
+        return (hash >>> 0).toString(36);
+    },
+
+    isGeneratedSalesLineId(id) {
+        const value = String(id || '').trim();
+        return !value || /^row_\d+$/i.test(value);
+    },
+
+    buildStableSalesLineId(row, index = 0) {
+        const existingId = String(row?._id || row?.id || '').trim();
+        if (existingId && !this.isGeneratedSalesLineId(existingId)) return existingId;
+
+        const belgeNo = this.getSalesLineIdentityField(row, ['Belge No', 'BELGE NO', 'Document No', 'Order No']);
+        const lineNo = this.getSalesLineIdentityField(row, ['Satır No', 'Satir No', 'Line No', 'Sıra No', 'Sira No', 'Sıra', 'Sira']);
+        const itemNo = this.getSalesLineIdentityField(row, ['No', 'NO', 'Katalog No', 'Madde No', 'Stok Kodu', 'Ürün No', 'Urun No']);
+        const quantity = this.getSalesLineIdentityField(row, ['Miktar', 'MIKTAR', 'Quantity']);
+        const date = this.getSalesLineIdentityField(row, ['Sevk Tarihi', 'Termin Tarihi', 'Teslim Tarihi', 'Talep edilen teslim tarihi']);
+        let raw = '';
+
+        if (belgeNo && lineNo) {
+            raw = [belgeNo, lineNo].map(value => this.normalizeSalesLineIdentityValue(value)).join('|');
+        } else if (belgeNo && itemNo && (quantity || date)) {
+            raw = [belgeNo, itemNo, quantity, date].map(value => this.normalizeSalesLineIdentityValue(value)).join('|');
+        } else if (itemNo && (quantity || date)) {
+            raw = [itemNo, quantity, date].map(value => this.normalizeSalesLineIdentityValue(value)).join('|');
+        }
+
+        if (raw.replace(/\|/g, '')) return `sl_${this.simpleSalesLineHash(raw)}`;
+        if (existingId) return `sl_${this.simpleSalesLineHash(`existing|${existingId}`)}`;
+        return `sl_manual_${Date.now()}_${index}`;
+    },
+
+    normalizeSalesLineIdentities(orders, editedLogMap = {}, meta = {}) {
+        const seen = new Map();
+        const idMap = new Map();
+        const normalizedOrders = (Array.isArray(orders) ? orders : []).map((order, index) => {
+            const previousId = String(order?._id || order?.id || '').trim();
+            const baseId = this.buildStableSalesLineId(order, index);
+            const count = seen.get(baseId) || 0;
+            seen.set(baseId, count + 1);
+            const nextId = count === 0 ? baseId : `${baseId}_${count + 1}`;
+            if (previousId && previousId !== nextId) idMap.set(previousId, nextId);
+            return { ...(order || {}), _id: nextId };
+        });
+        const normalizedEditedLog = {};
+        Object.entries(editedLogMap || {}).forEach(([id, logs]) => {
+            const nextId = idMap.get(String(id)) || String(id);
+            normalizedEditedLog[nextId] = logs;
+        });
+        const normalizedMeta = { ...(meta || {}) };
+        ['changedRowIds', 'deletedRowIds', 'todayOutputOrderIds'].forEach(key => {
+            if (Array.isArray(normalizedMeta[key])) {
+                normalizedMeta[key] = normalizedMeta[key]
+                    .map(id => idMap.get(String(id || '').trim()) || String(id || '').trim())
+                    .filter(Boolean);
+            }
+        });
+        if (normalizedMeta.rowBaseMeta && typeof normalizedMeta.rowBaseMeta === 'object') {
+            const nextBaseMeta = {};
+            Object.entries(normalizedMeta.rowBaseMeta).forEach(([id, value]) => {
+                nextBaseMeta[idMap.get(String(id)) || String(id)] = value;
+            });
+            normalizedMeta.rowBaseMeta = nextBaseMeta;
+        }
+        return { orders: normalizedOrders, editedLog: normalizedEditedLog, meta: normalizedMeta };
+    },
+
     buildProductTreeMap(products = []) {
         const map = new Map();
         products.forEach(product => {
@@ -313,13 +511,18 @@ var firebaseSync = {
     },
 
     normalizeSalesLinesPayload(payload) {
+        const identityState = this.normalizeSalesLineIdentities(
+            Array.isArray(payload?.allOrders) ? payload.allOrders : [],
+            payload?.editedLog || {},
+            payload?.meta || {}
+        );
         const normalizedPayload = {
             version: payload?.version || 1,
             savedAt: payload?.savedAt || new Date().toISOString(),
-            meta: payload?.meta || {},
-            editedLog: payload?.editedLog || {},
+            meta: identityState.meta,
+            editedLog: identityState.editedLog,
             columnOrder: Array.isArray(payload?.columnOrder) ? payload.columnOrder : [],
-            allOrders: Array.isArray(payload?.allOrders) ? payload.allOrders : []
+            allOrders: identityState.orders
         };
 
         return this.cloneData(normalizedPayload);
@@ -350,7 +553,7 @@ var firebaseSync = {
     },
 
     getSalesLineRowKey(order, index = 0) {
-        return this.encodeDatabaseKey(order?._id || order?.id || order?.['Belge No'] || `row_${index}`);
+        return this.encodeDatabaseKey(this.buildStableSalesLineId(order, index));
     },
 
     parseSalesLineRowEntry(entry) {
@@ -367,9 +570,36 @@ var firebaseSync = {
 
     getSalesLineRowEntryTime(entry) {
         const row = this.parseSalesLineRowEntry(entry);
-        const value = entry?.rowUpdatedAt || row?._rowUpdatedAt || '';
+        const sync = row?._sync && typeof row._sync === 'object' ? row._sync : {};
+        const value = entry?.rowUpdatedAt || sync.updatedAt || row?._rowUpdatedAt || '';
         const time = value ? new Date(value).getTime() : 0;
         return Number.isFinite(time) ? time : 0;
+    },
+
+    getSalesLineRowEntryVersion(entry) {
+        const row = this.parseSalesLineRowEntry(entry);
+        const sync = row?._sync && typeof row._sync === 'object' ? row._sync : {};
+        const version = Number(entry?.rowVersion || sync.version || row?._rowVersion || 0);
+        return Number.isFinite(version) ? version : 0;
+    },
+
+    buildSalesLineConflict(id, type, localOrder, currentEntry, baseMeta = {}, key = '') {
+        const remoteRow = this.parseSalesLineRowEntry(currentEntry);
+        return {
+            id,
+            key,
+            type,
+            localRow: this.cloneData(localOrder || {}),
+            remoteRow: this.cloneData(remoteRow || {}),
+            baseMeta: this.cloneData(baseMeta || {}),
+            remoteMeta: {
+                updatedAt: currentEntry?.rowUpdatedAt || remoteRow?._sync?.updatedAt || remoteRow?._rowUpdatedAt || '',
+                version: this.getSalesLineRowEntryVersion(currentEntry),
+                updatedBy: currentEntry?.rowUpdatedBy || remoteRow?._sync?.updatedByParaf || remoteRow?._rowUpdatedBy || '',
+                updatedByUid: currentEntry?.rowUpdatedByUid || remoteRow?._sync?.updatedByUid || remoteRow?._rowUpdatedByUid || null
+            },
+            conflictedAt: new Date().toISOString()
+        };
     },
 
     getSalesLinePatchRowIds(payload, key) {
@@ -383,19 +613,33 @@ var firebaseSync = {
         delete sanitized.changedRowIds;
         delete sanitized.deletedRowIds;
         delete sanitized.rowBaseMeta;
+        delete sanitized.todayOutputOrderIds;
+        delete sanitized.todayOutputsDate;
+        delete sanitized.todayOutputsMeta;
         return sanitized;
     },
 
     buildSalesLineRowEntry(order, index = 0) {
         const row = this.cloneData(order || {});
-        const rowUpdatedAt = row._rowUpdatedAt || new Date().toISOString();
-        const rowVersion = Number(row._rowVersion || 0) || 1;
+        const sync = row._sync && typeof row._sync === 'object' ? row._sync : {};
+        const rowUpdatedAt = sync.updatedAt || row._rowUpdatedAt || new Date().toISOString();
+        const rowVersion = Number(sync.version || row._rowVersion || 0) || 1;
+        row._sync = {
+            version: rowVersion,
+            updatedAt: rowUpdatedAt,
+            updatedByUid: sync.updatedByUid || row._rowUpdatedByUid || null,
+            updatedByParaf: sync.updatedByParaf || row._rowUpdatedBy || ''
+        };
+        row._rowVersion = rowVersion;
+        row._rowUpdatedAt = rowUpdatedAt;
+        row._rowUpdatedByUid = row._sync.updatedByUid;
+        row._rowUpdatedBy = row._sync.updatedByParaf;
         return {
             index,
             rowJson: JSON.stringify(row),
             rowUpdatedAt,
-            rowUpdatedBy: row._rowUpdatedBy || '',
-            rowUpdatedByUid: row._rowUpdatedByUid || null,
+            rowUpdatedBy: row._sync.updatedByParaf || '',
+            rowUpdatedByUid: row._sync.updatedByUid || null,
             rowVersion
         };
     },
@@ -438,10 +682,16 @@ var firebaseSync = {
             }
         });
 
+        const todayOutputIds = this.getTodayOutputRowIdsFromCache();
         return this.normalizeSalesLinesPayload({
             version: meta?.version || 2,
             savedAt: meta?.savedAt || new Date().toISOString(),
-            meta: this.sanitizeSalesLinesMetaForStorage(meta?.meta || {}),
+            meta: {
+                ...this.sanitizeSalesLinesMetaForStorage(meta?.meta || {}),
+                todayOutputOrderIds: todayOutputIds,
+                todayOutputsDate: this.salesLinesTodayOutputsCache?.dateKey || this.getSalesLinesTodayOutputDateKey(),
+                todayOutputsMeta: this.cloneData(this.salesLinesTodayOutputsCache?.meta || {})
+            },
             columnOrder: Array.isArray(meta?.columnOrder) ? meta.columnOrder : [],
             editedLog,
             allOrders
@@ -805,6 +1055,149 @@ var firebaseSync = {
         return this.syncOrderDiff(orderList, { force: false, reason: 'push_orders_compat' });
     },
 
+    async syncOrderRowsPatch(orderList = [], options = {}) {
+        if ((!this.ordersRowsRef && !this.ordersRef) || !Array.isArray(orderList)) return false;
+        if (typeof setSyncStatus === 'function') setSyncStatus('syncing');
+
+        const changedOrderIds = Array.from(new Set((options.changedOrderIds || [])
+            .map(id => String(id || '').trim())
+            .filter(Boolean)));
+        const deletedOrderIds = Array.from(new Set((options.deletedOrderIds || [])
+            .map(id => String(id || '').trim())
+            .filter(Boolean)));
+        const orderMap = this.buildOrderMap(orderList);
+        const rowBaseMeta = options.rowBaseMeta || {};
+        const conflicts = [];
+        let changedRows = 0;
+        const successfulUpserts = [];
+        const successfulDeletes = [];
+
+        this.orderWriteInFlight = true;
+        try {
+            for (const id of changedOrderIds) {
+                const currentOrder = orderMap.get(id);
+                if (!currentOrder) continue;
+                const baseMeta = rowBaseMeta[id] || this.getOrderSyncMeta(this.orderCache?.get(id) || null);
+                const before = this.orderCache.get(id) || null;
+                const after = this.normalizeOrderForWrite(currentOrder, before, options);
+                if (!after) continue;
+                const key = this.getOrderRowKey(id);
+
+                if (this.ordersRowsRef) {
+                    let rejected = false;
+                    let conflictCurrent = null;
+                    await this.ordersRowsRef.child(key).transaction(current => {
+                        conflictCurrent = current;
+                        if (options.forceConflictOverwrite) return this.buildOrderRowEntry(after);
+                        if (!current && Number(baseMeta.version || 0) > 0) {
+                            rejected = true;
+                            return;
+                        }
+                        const currentVersion = this.getOrderRowEntryVersion(current);
+                        const baseVersion = Number(baseMeta.version || 0) || 0;
+                        if (current && currentVersion !== baseVersion) {
+                            rejected = true;
+                            return;
+                        }
+                        return this.buildOrderRowEntry(after);
+                    });
+                    if (rejected) {
+                        conflicts.push(this.buildOrderConflict(id, 'update', currentOrder, conflictCurrent, baseMeta));
+                        continue;
+                    }
+                } else {
+                    await this.ordersRef.child(id).set(after);
+                }
+
+                changedRows += 1;
+                successfulUpserts.push({ id, before, after });
+            }
+
+            for (const id of deletedOrderIds) {
+                const before = this.orderCache.get(id) || null;
+                const baseMeta = rowBaseMeta[id] || this.getOrderSyncMeta(before);
+                const after = this.buildOrderTombstone(id, before, options);
+                if (!after) continue;
+                const key = this.getOrderRowKey(id);
+
+                if (this.ordersRowsRef) {
+                    let rejected = false;
+                    let conflictCurrent = null;
+                    await this.ordersRowsRef.child(key).transaction(current => {
+                        conflictCurrent = current;
+                        if (options.forceConflictOverwrite) return this.buildOrderRowEntry(after);
+                        const currentVersion = this.getOrderRowEntryVersion(current);
+                        const baseVersion = Number(baseMeta.version || 0) || 0;
+                        if (current && currentVersion !== baseVersion) {
+                            rejected = true;
+                            return;
+                        }
+                        return this.buildOrderRowEntry(after);
+                    });
+                    if (rejected) {
+                        conflicts.push(this.buildOrderConflict(id, 'delete', null, conflictCurrent, baseMeta));
+                        continue;
+                    }
+                } else {
+                    await this.ordersRef.child(id).set(after);
+                }
+
+                changedRows += 1;
+                successfulDeletes.push({ id, before, after });
+            }
+
+            if (this.ordersMetaRef && changedRows > 0) {
+                await this.ordersMetaRef.update({
+                    version: 2,
+                    savedAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString()
+                });
+            }
+        } finally {
+            this.orderWriteInFlight = false;
+            this.flushSuppressedOrdersSnapshot();
+        }
+
+        for (const item of successfulUpserts) {
+            this.orderCache.set(item.id, item.after);
+            this.orderRowsCache.set(this.getOrderRowKey(item.id), this.buildOrderRowEntry(item.after));
+            this.updateLocalOrderFromWrite(item.after);
+            await this.writeAuditLog({
+                entityType: 'order',
+                entityId: item.id,
+                action: item.before ? 'update' : 'create',
+                before: item.before,
+                after: item.after,
+                reason: options.reason || 'sync_order_rows_patch'
+            });
+        }
+
+        for (const item of successfulDeletes) {
+            this.orderCache.set(item.id, item.after);
+            this.orderRowsCache.set(this.getOrderRowKey(item.id), this.buildOrderRowEntry(item.after));
+            await this.writeAuditLog({
+                entityType: 'order',
+                entityId: item.id,
+                action: 'delete',
+                before: item.before,
+                after: item.after,
+                reason: options.reason || 'sync_order_rows_patch'
+            });
+        }
+
+        if (conflicts.length && typeof setSyncStatus === 'function') {
+            setSyncStatus('conflict', `${conflicts.length} talep satırı karar bekliyor.`);
+        } else if (typeof setSyncStatus === 'function') {
+            setSyncStatus('live');
+        }
+
+        return {
+            ok: conflicts.length === 0,
+            changedRows,
+            conflicts
+        };
+    },
+
     async pushSingleOrder(order, options = {}) {
         if ((!this.ordersRowsRef && !this.ordersRef) || !order?.id) return false;
         if (typeof setSyncStatus === 'function') setSyncStatus('syncing');
@@ -1042,6 +1435,11 @@ var firebaseSync = {
     async migrateProductTrees(localProducts = []) {
         if (!this.productTreesRef) return null;
 
+        const remoteProducts = await this.getAllProductTrees();
+        if (Array.isArray(remoteProducts) && remoteProducts.length > 0) {
+            return remoteProducts;
+        }
+
         if (Array.isArray(localProducts) && localProducts.length > 0) {
             if (this.canWriteProductTrees()) {
                 try {
@@ -1052,11 +1450,9 @@ var firebaseSync = {
                 return localProducts;
             }
 
-            const remoteProducts = await this.getAllProductTrees();
-            return remoteProducts || localProducts;
+            return localProducts;
         }
 
-        const remoteProducts = await this.getAllProductTrees();
         return remoteProducts;
     },
 
@@ -1087,6 +1483,51 @@ var firebaseSync = {
             this.productTreesRef.off('value');
         }
         this.isProductTreeListening = false;
+    },
+
+    async syncSalesLinesTodayOutputs(payload = {}, options = {}) {
+        if (!this.salesLinesTodayOutputsRef) return false;
+        const normalized = this.normalizeTodayOutputsPayload(payload);
+        const actor = this.getCurrentActor();
+        const now = new Date().toISOString();
+        let nextNode = null;
+        await this.salesLinesTodayOutputsRef.child(normalized.dateKey).transaction(current => {
+            const currentMeta = current && typeof current === 'object' && current.meta && !normalized.meta?.resetMeta
+                ? current.meta
+                : {};
+            const nextMeta = {
+                ...currentMeta,
+                ...(normalized.meta || {}),
+                updatedAt: now,
+                updatedByUid: actor.uid || null,
+                updatedByParaf: actor.paraf || ''
+            };
+            delete nextMeta.resetMeta;
+            if (!nextMeta.createdAt) nextMeta.createdAt = now;
+            if (!nextMeta.createdBy && actor.paraf) nextMeta.createdBy = actor.paraf;
+            if (!nextMeta.createdByUid && actor.uid) nextMeta.createdByUid = actor.uid;
+            nextNode = {
+                rowIds: normalized.rowIds,
+                meta: nextMeta
+            };
+            return nextNode;
+        });
+        this.salesLinesTodayOutputsCache = this.parseTodayOutputsNode(normalized.dateKey, nextNode || {});
+
+        await this.writeAuditLog({
+            entityType: 'salesLinesTodayOutputs',
+            entityId: normalized.dateKey,
+            action: options.action || normalized.meta?.action || 'update',
+            before: null,
+            after: {
+                dateKey: normalized.dateKey,
+                rowCount: Object.keys(normalized.rowIds).length,
+                meta: nextNode?.meta || {}
+            },
+            reason: options.reason || 'sync_sales_lines_today_outputs'
+        });
+
+        return true;
     },
 
     async syncSalesLinesMetaPayload(payload, options = {}) {
@@ -1134,7 +1575,7 @@ var firebaseSync = {
         });
 
         let changedRows = 0;
-        let conflicts = 0;
+        const conflicts = [];
 
         for (const id of changedRowIds) {
             const item = ordersById.get(id);
@@ -1143,9 +1584,24 @@ var firebaseSync = {
             const incomingEntry = this.buildSalesLineRowEntry(item.order, item.index);
             const incomingTime = this.getSalesLineRowEntryTime(incomingEntry);
             const baseTime = Date.parse(rowBaseMeta[id]?.updatedAt || '') || 0;
+            const baseVersion = Number(rowBaseMeta[id]?.version || 0) || 0;
             let rejected = false;
+            let conflictCurrent = null;
 
             await this.salesLinesRowsRef.child(key).transaction(current => {
+                conflictCurrent = current;
+                if (options.forceConflictOverwrite) {
+                    return incomingEntry;
+                }
+                if (!current && baseVersion > 0) {
+                    rejected = true;
+                    return;
+                }
+                const currentVersion = this.getSalesLineRowEntryVersion(current);
+                if (current && currentVersion !== baseVersion) {
+                    rejected = true;
+                    return;
+                }
                 const currentTime = this.getSalesLineRowEntryTime(current);
                 if (baseTime && currentTime && currentTime > baseTime) {
                     rejected = true;
@@ -1159,7 +1615,7 @@ var firebaseSync = {
             });
 
             if (rejected) {
-                conflicts += 1;
+                conflicts.push(this.buildSalesLineConflict(id, 'update', item.order, conflictCurrent, rowBaseMeta[id], key));
                 continue;
             }
             changedRows += 1;
@@ -1172,9 +1628,20 @@ var firebaseSync = {
 
         for (const id of deletedRowIds) {
             const baseTime = Date.parse(rowBaseMeta[id]?.updatedAt || '') || 0;
+            const baseVersion = Number(rowBaseMeta[id]?.version || 0) || 0;
             const key = this.encodeDatabaseKey(id);
             let rejected = false;
+            let conflictCurrent = null;
             await this.salesLinesRowsRef.child(key).transaction(current => {
+                conflictCurrent = current;
+                if (options.forceConflictOverwrite) {
+                    return null;
+                }
+                const currentVersion = this.getSalesLineRowEntryVersion(current);
+                if (current && currentVersion !== baseVersion) {
+                    rejected = true;
+                    return;
+                }
                 const currentTime = this.getSalesLineRowEntryTime(current);
                 if (baseTime && currentTime && currentTime > baseTime) {
                     rejected = true;
@@ -1183,7 +1650,7 @@ var firebaseSync = {
                 return null;
             });
             if (rejected) {
-                conflicts += 1;
+                conflicts.push(this.buildSalesLineConflict(id, 'delete', null, conflictCurrent, rowBaseMeta[id], key));
                 continue;
             }
             changedRows += 1;
@@ -1191,8 +1658,8 @@ var firebaseSync = {
         }
 
         await this.syncSalesLinesMetaPayload(normalizedPayload, options);
-        if (conflicts && typeof setSyncStatus === 'function') {
-            setSyncStatus('conflict', `${conflicts} satış satırı daha yeni veri içerdiği için ezilmedi.`);
+        if (conflicts.length && typeof setSyncStatus === 'function') {
+            setSyncStatus('conflict', `${conflicts.length} satış satırı karar bekliyor.`);
         }
         await this.writeAuditLog({
             entityType: 'salesLines',
@@ -1202,11 +1669,15 @@ var firebaseSync = {
             after: {
                 savedAt: normalizedPayload.savedAt,
                 changedRows,
-                conflicts
+                conflicts: conflicts.length
             },
             reason: options.reason || 'sync_sales_lines_rows_patch'
         });
-        return conflicts === 0;
+        return {
+            ok: conflicts.length === 0,
+            changedRows,
+            conflicts
+        };
     },
 
     async syncSalesLinesPayload(payload, options = {}) {
@@ -1316,14 +1787,17 @@ var firebaseSync = {
 
         try {
             if (this.salesLinesV2Ref) {
-                const [metaSnapshot, rowsSnapshot, logsSnapshot] = await Promise.all([
+                const todayKey = this.getSalesLinesTodayOutputDateKey();
+                const [metaSnapshot, rowsSnapshot, logsSnapshot, todayOutputsSnapshot] = await Promise.all([
                     this.salesLinesMetaRef.once('value'),
                     this.salesLinesRowsRef.once('value'),
-                    this.salesLinesEditedLogRef.once('value')
+                    this.salesLinesEditedLogRef.once('value'),
+                    this.salesLinesTodayOutputsRef ? this.salesLinesTodayOutputsRef.child(todayKey).once('value') : Promise.resolve({ val: () => null })
                 ]);
                 const meta = metaSnapshot.val();
                 const rows = rowsSnapshot.val() || {};
                 const logs = logsSnapshot.val() || {};
+                this.salesLinesTodayOutputsCache = this.parseTodayOutputsNode(todayKey, todayOutputsSnapshot.val() || {});
                 if (meta || Object.keys(rows).length > 0) {
                     return this.hydrateSalesLinesV2Caches(this.buildSalesLinesV2Payload(meta || {}, rows, logs));
                 }
@@ -1345,6 +1819,7 @@ var firebaseSync = {
         if (!this.salesLinesV2Ref || !this.salesLinesRowsRef || !this.salesLinesEditedLogRef || !this.salesLinesMetaRef || this.isSalesLinesListening) return;
 
         this.isSalesLinesListening = true;
+        const todayOutputsDateKey = this.getSalesLinesTodayOutputDateKey();
         const scheduleEmit = () => {
             this.lastSalesLinesEventAt = Date.now();
             if (this.salesLinesEmitTimer) clearTimeout(this.salesLinesEmitTimer);
@@ -1399,6 +1874,13 @@ var firebaseSync = {
             scheduleEmit();
         });
 
+        if (this.salesLinesTodayOutputsRef) {
+            this.salesLinesTodayOutputsRef.child(todayOutputsDateKey).on('value', snapshot => {
+                this.salesLinesTodayOutputsCache = this.parseTodayOutputsNode(todayOutputsDateKey, snapshot.val() || {});
+                scheduleEmit();
+            });
+        }
+
         if (this.salesLinesRef) {
             this.salesLinesRef.on('value', snapshot => {
                 const payload = snapshot.val();
@@ -1417,6 +1899,7 @@ var firebaseSync = {
         if (this.salesLinesMetaRef) this.salesLinesMetaRef.off();
         if (this.salesLinesRowsRef) this.salesLinesRowsRef.off();
         if (this.salesLinesEditedLogRef) this.salesLinesEditedLogRef.off();
+        if (this.salesLinesTodayOutputsRef) this.salesLinesTodayOutputsRef.off();
         if (this.salesLinesRef) this.salesLinesRef.off('value');
         if (this.salesLinesEmitTimer) {
             clearTimeout(this.salesLinesEmitTimer);
@@ -1542,7 +2025,7 @@ var offlineManager = {
             }
 
             if (firebaseSync.productTreesRef && typeof productTreeExcel !== 'undefined') {
-                await firebaseSync.syncProductTrees(productTreeExcel.getManagedProducts(), { reason: 'offline_reconnect' });
+                await firebaseSync.migrateProductTrees(productTreeExcel.getManagedProducts());
             }
 
             this.pendingSync = false;
