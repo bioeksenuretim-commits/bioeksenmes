@@ -18,7 +18,7 @@ const PRODUCT_TREES_CLOUD_URL = 'https://reaksiyontalep-default-rtdb.europe-west
 const SALES_LINES_CACHE_DB_NAME = SALES_LINES_TEST_LOCAL_MODE ? 'ReaksiyonTestSalesLinesCache' : 'ReaksiyonSalesLinesCache';
 const SALES_LINES_CACHE_DB_VERSION = 2;
 const SALES_LINES_CACHE_STORE = 'payloads';
-const SALES_LINES_PENDING_OPS_STORE = 'pendingOps';
+const SALES_LINES_PENDING_PATCHES_KEY = 'sales_lines_pending_patches_v1';
 const SALES_LINES_CACHE_ID = 'current';
 let salesLinesCacheDbPromise = null;
 let suppressSalesLinesParentPost = false;
@@ -1292,9 +1292,6 @@ function openSalesLinesCacheDb() {
             if (!db.objectStoreNames.contains(SALES_LINES_CACHE_STORE)) {
                 db.createObjectStore(SALES_LINES_CACHE_STORE, { keyPath: 'id' });
             }
-            if (!db.objectStoreNames.contains(SALES_LINES_PENDING_OPS_STORE)) {
-                db.createObjectStore(SALES_LINES_PENDING_OPS_STORE, { keyPath: 'id' });
-            }
         };
     });
 
@@ -1347,98 +1344,93 @@ async function clearSalesLinesIndexedDbCache() {
     });
 }
 
-async function queuePendingSalesLinesPatch(payload, changedRowIds = [], deletedRowIds = []) {
-    const db = await openSalesLinesCacheDb();
-    const rowIds = Array.from(new Set([
-        ...(Array.isArray(changedRowIds) ? changedRowIds : []),
-        ...(Array.isArray(deletedRowIds) ? deletedRowIds : [])
-    ].map(id => String(id || '').trim()).filter(Boolean)));
-    if (!db || rowIds.length === 0 || !payload) return false;
-
-    return new Promise(resolve => {
-        const queuedAt = new Date().toISOString();
-        const queueId = `row-patch_${simpleSalesLineHash(rowIds.slice().sort().join('|'))}`;
-        const transaction = db.transaction([SALES_LINES_PENDING_OPS_STORE], 'readwrite');
-        transaction.objectStore(SALES_LINES_PENDING_OPS_STORE).put({
-            id: queueId,
-            type: 'row-patch',
-            rowIds,
-            changedRowIds: Array.isArray(changedRowIds) ? changedRowIds : [],
-            deletedRowIds: Array.isArray(deletedRowIds) ? deletedRowIds : [],
-            rowBaseMeta: payload?.meta?.rowBaseMeta || {},
-            payload,
-            queuedAt
-        });
-        transaction.oncomplete = () => resolve(true);
-        transaction.onerror = () => {
-            console.warn('Sales lines pending queue yazilamadi:', transaction.error);
-            resolve(false);
-        };
-    });
-}
-
-async function loadPendingSalesLinesPatches() {
-    const db = await openSalesLinesCacheDb();
-    if (!db) return [];
-
-    return new Promise(resolve => {
-        const transaction = db.transaction([SALES_LINES_PENDING_OPS_STORE], 'readonly');
-        const request = transaction.objectStore(SALES_LINES_PENDING_OPS_STORE).getAll();
-        request.onsuccess = () => {
-            const items = Array.isArray(request.result) ? request.result : [];
-            resolve(items.sort((a, b) => String(a.queuedAt || '').localeCompare(String(b.queuedAt || ''))));
-        };
-        request.onerror = () => {
-            console.warn('Sales lines pending queue okunamadi:', request.error);
-            resolve([]);
-        };
-    });
-}
-
-async function removePendingSalesLinesPatch(id) {
-    const db = await openSalesLinesCacheDb();
-    const key = String(id || '').trim();
-    if (!db || !key) return false;
-
-    return new Promise(resolve => {
-        const transaction = db.transaction([SALES_LINES_PENDING_OPS_STORE], 'readwrite');
-        transaction.objectStore(SALES_LINES_PENDING_OPS_STORE).delete(key);
-        transaction.oncomplete = () => resolve(true);
-        transaction.onerror = () => resolve(false);
-    });
-}
-
-async function flushPendingSalesLinesPatches() {
-    if (SALES_LINES_TEST_LOCAL_MODE || salesLinesPendingFlushInFlight) return false;
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) return false;
-
-    salesLinesPendingFlushInFlight = true;
+function readPendingSalesLinesPatches() {
     try {
-        const pendingOps = await loadPendingSalesLinesPatches();
-        let flushed = 0;
-        for (const op of pendingOps) {
-            if (!op?.payload) {
-                await removePendingSalesLinesPatch(op?.id);
-                continue;
-            }
-            const result = await flushSalesLinesCloudSave(op.payload, { reason: 'sales_lines_pending_queue', queuedAt: op.queuedAt });
-            if (!isSalesLinesCloudSaveSuccessful(result)) break;
-            await removePendingSalesLinesPatch(op.id);
-            flushed += 1;
-        }
-        if (flushed > 0) {
-            showToast(`${flushed} bekleyen satış satırı değişikliği merkeze gönderildi`, 'success');
-        }
-        return flushed > 0;
-    } catch (error) {
-        console.warn('Sales lines pending queue gonderilemedi:', error);
-        return false;
-    } finally {
-        salesLinesPendingFlushInFlight = false;
+        const parsed = JSON.parse(localStorage.getItem(SALES_LINES_PENDING_PATCHES_KEY) || '[]');
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (_) {
+        return [];
     }
 }
 
-function isStorageQuotaError(error) {
+function writePendingSalesLinesPatches(patches) {
+    try {
+        localStorage.setItem(
+            SALES_LINES_PENDING_PATCHES_KEY,
+            JSON.stringify(Array.isArray(patches) ? patches : [])
+        );
+        return true;
+    } catch (error) {
+        console.warn('Bekleyen satis satiri patch kuyrugu yazilamadi:', error);
+        return false;
+    }
+}
+
+async function queuePendingSalesLinesPatch(payload, changedRowIds = [], deletedRowIds = []) {
+    if (!payload) return false;
+
+    const patches = readPendingSalesLinesPatches();
+
+    patches.push({
+        queuedAt: new Date().toISOString(),
+        changedRowIds: Array.isArray(changedRowIds) ? changedRowIds : [],
+        deletedRowIds: Array.isArray(deletedRowIds) ? deletedRowIds : [],
+        payload
+    });
+
+    writePendingSalesLinesPatches(patches);
+
+    if (typeof showToast === 'function') {
+        showToast('Satis satiri degisikligi baglanti gelince tekrar gonderilecek.', 'warning');
+    }
+
+    return true;
+}
+
+async function flushPendingSalesLinesPatches() {
+    if (salesLinesPendingFlushInFlight) return false;
+
+    const patches = readPendingSalesLinesPatches();
+    if (patches.length === 0) return true;
+
+    salesLinesPendingFlushInFlight = true;
+    const remaining = [];
+    let sentCount = 0;
+
+    try {
+        for (const patch of patches) {
+            try {
+                const result = await flushSalesLinesCloudSave(patch.payload);
+
+                if (Array.isArray(result?.conflicts) && result.conflicts.length > 0) {
+                    addSalesLineConflicts(result.conflicts);
+                    sentCount += 1;
+                    continue;
+                }
+
+                if (isSalesLinesCloudSaveSuccessful(result)) {
+                    sentCount += 1;
+                    continue;
+                }
+
+                remaining.push(patch);
+            } catch (error) {
+                console.warn('Bekleyen satis satiri patch gonderilemedi:', error);
+                remaining.push(patch);
+            }
+        }
+
+        writePendingSalesLinesPatches(remaining);
+
+        if (sentCount > 0 && typeof showToast === 'function') {
+            showToast(`${sentCount} bekleyen satis satiri degisikligi merkeze gonderildi.`, 'success');
+        }
+
+        return remaining.length === 0;
+    } finally {
+        salesLinesPendingFlushInFlight = false;
+    }
+}function isStorageQuotaError(error) {
     return error && (
         error.name === 'QuotaExceededError' ||
         error.name === 'NS_ERROR_DOM_QUOTA_REACHED' ||
@@ -2109,7 +2101,9 @@ async function saveSalesLinesState(meta = {}, options = {}) {
         const saved = await scheduleSalesLinesCloudSave(payload, immediate);
         scheduledResolversForImmediate.forEach(resolve => resolve(saved));
         if (!isSalesLinesCloudSaveSuccessful(saved)) {
-            await queuePendingSalesLinesPatch(payload, changedRowIds, deletedRowIds);
+            if (typeof queuePendingSalesLinesPatch === 'function') {
+                await queuePendingSalesLinesPatch(payload, changedRowIds, deletedRowIds);
+            }
             return saved;
         }
         const conflictIds = new Set(getSalesLineConflictIds(saved));
