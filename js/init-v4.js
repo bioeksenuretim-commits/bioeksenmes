@@ -336,25 +336,6 @@ function isInitOverdueOrder(order) {
     return date.getTime() < todayStart.getTime();
 }
 
-function applyFiltersWithPagination() {
-    let baseOrders = orders;
-
-    if (typeof activeTabFilter !== 'undefined') {
-        if (activeTabFilter === 'vcap') {
-            baseOrders = orders.filter(o => o.format === 'vCAP' && o.requesterNote !== 'Karşılığı olmayan ürün');
-        } else if (activeTabFilter === 'liyofilize') {
-            baseOrders = orders.filter(o => o.format === 'Liyofilize' && o.requesterNote !== 'Karşılığı olmayan ürün');
-        } else if (activeTabFilter === 'tube') {
-            baseOrders = orders.filter(o => o.format === 'Tüp' && o.requesterNote !== 'Karşılığı olmayan ürün');
-        } else if (activeTabFilter === 'unmatched') {
-            baseOrders = orders.filter(o => o.requesterNote === 'Karşılığı olmayan ürün');
-        }
-    }
-
-    filteredOrders = advancedFilters.filterData(baseOrders);
-    renderOrders(filteredOrders);
-}
-
 function renderCurrentView() {
     const activeTab = document.querySelector('.nav-tab.active');
     if (!activeTab) return;
