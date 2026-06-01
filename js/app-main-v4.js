@@ -265,6 +265,21 @@
         window.setSyncStatus = setSyncStatus;
         window.refreshSyncStatusFromRuntime = refreshSyncStatusFromRuntime;
 
+        function togglePasswordVisibility(inputId, button) {
+            const input = document.getElementById(inputId);
+            if (!input) return;
+            const shouldShow = input.type === 'password';
+            input.type = shouldShow ? 'text' : 'password';
+            if (button) {
+                button.setAttribute('aria-pressed', shouldShow ? 'true' : 'false');
+                button.setAttribute('aria-label', shouldShow ? 'Şifreyi gizle' : 'Şifreyi göster');
+                button.textContent = shouldShow ? '🙈' : '👁';
+            }
+            input.focus();
+        }
+
+        window.togglePasswordVisibility = togglePasswordVisibility;
+
         function toggleLoginMode() {
             const loginForm = document.getElementById('loginForm');
             const registerForm = document.getElementById('registerForm');

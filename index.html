@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/css/modules.css">
-    <link rel="stylesheet" href="/css/app-main.css?v=20260601-dev-env">
+    <link rel="stylesheet" href="/css/app-main.css?v=20260601-bioeksen-login">
 
     <script defer src="/js/excel-loader.js?v=20260513-local-vendor"></script>
 
@@ -43,17 +43,24 @@
             <!-- Login Form -->
             <div id="loginForm">
                 <div class="login-field">
-                    <label>Paraf</label>
-                    <input type="text" id="loginParaf" placeholder="Örn: SKY" autocomplete="off">
+                    <label for="loginParaf">Paraf</label>
+                    <div class="login-input-wrap">
+                        <span class="login-input-icon" aria-hidden="true">👤</span>
+                        <input type="text" id="loginParaf" placeholder="Örn: SKY" autocomplete="off">
+                    </div>
                 </div>
                 <div class="login-field">
-                    <label>Şifre</label>
-                    <input type="password" id="loginPassword" placeholder="Şifrenizi yazın">
+                    <label for="loginPassword">Şifre</label>
+                    <div class="login-input-wrap">
+                        <span class="login-input-icon" aria-hidden="true">🔒</span>
+                        <input type="password" id="loginPassword" placeholder="Şifrenizi yazın">
+                        <button type="button" class="login-password-toggle" aria-label="Şifreyi göster" aria-pressed="false" onclick="togglePasswordVisibility('loginPassword', this)">👁</button>
+                    </div>
                 </div>
                 <button class="login-btn" onclick="doLogin()">Giriş Yap</button>
                 <div class="login-error" id="loginError"></div>
                 <div class="login-toggle">
-                    Sifrenizi mi degistirmek istiyorsunuz? <a onclick="showLoginView('change-password')">Sifremi degistir</a>
+                    Şifrenizi mi değiştirmek istiyorsunuz? <a onclick="showLoginView('change-password')">Şifremi değiştir</a>
                 </div>
                 <div class="login-toggle">
                     Hesabınız yok mu? <a onclick="toggleLoginMode()">Hesap Oluştur</a>
@@ -1190,6 +1197,6 @@
     <div class="toast-container" id="toastContainer"></div>
 
     <script defer src="/js/orders-renderer-v1.js?v=20260601-sales-lines-sync-guard"></script>
-    <script defer src="/js/app-main-v4.js?v=20260601-dev-env"></script>
+    <script defer src="/js/app-main-v4.js?v=20260601-bioeksen-login"></script>
 </body>
 </html>
