@@ -49,7 +49,13 @@ let lastPolledSalesLinesSignature = '';
 let lastPolledOrdersSignature = '';
 let lastOrdersPollAt = 0;
 let lastSalesPollAt = 0;
-const SALES_LINES_STATE_URL = 'https://reaksiyontalep-default-rtdb.europe-west1.firebasedatabase.app/salesLines/state.json';
+const FIREBASE_DB_REST_BASE_URL = 'https://reaksiyontalep-default-rtdb.europe-west1.firebasedatabase.app';
+function buildInitFirebaseRestUrl(path) {
+    const cleanPath = String(path || '').replace(/^\/+/, '');
+    const dbPath = typeof getFirebaseDbPath === 'function' ? getFirebaseDbPath(cleanPath) : cleanPath;
+    return `${FIREBASE_DB_REST_BASE_URL}/${dbPath}.json`;
+}
+const SALES_LINES_STATE_URL = buildInitFirebaseRestUrl('salesLines/state');
 const ORDERS_FALLBACK_VISIBLE_MS = 60000;
 const ORDERS_FALLBACK_HIDDEN_MS = 300000;
 const SALES_LINES_FALLBACK_VISIBLE_MS = 60000;

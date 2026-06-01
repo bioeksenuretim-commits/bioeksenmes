@@ -2,6 +2,7 @@
         // ===== AUTH SYSTEM =====
         let currentUser = null;
         let loginInProgress = false;
+        const DEV_ENV_QUERY_VALUE = 'dev';
         const FIREBASE_SESSION_KEY = 'reaksiyon_session';
         const TEST_LOCAL_SESSION_KEY = 'reaksiyon_test_session';
         const LEGACY_AUTH_SESSION_KEYS = [FIREBASE_SESSION_KEY, 'reaksiyon_local_admin_session', TEST_LOCAL_SESSION_KEY];
@@ -34,7 +35,57 @@
         function setCurrentUser(user) {
             currentUser = user || null;
             window.currentUser = currentUser;
+            syncDevEnvironmentState();
         }
+
+        function hasDevEnvQuery() {
+            return new URLSearchParams(window.location.search).get('env') === DEV_ENV_QUERY_VALUE;
+        }
+
+        function canUseDevEnvironment(user = currentUser) {
+            const role = String(user?.role || '').trim().toLowerCase();
+            return role === 'admin' || role === 'dev';
+        }
+
+        function isDevEnvironment() {
+            const role = String(currentUser?.role || '').trim().toLowerCase();
+            return canUseDevEnvironment() && (hasDevEnvQuery() || role === 'dev');
+        }
+
+        function getFirebaseDbPrefix() {
+            return isDevEnvironment() ? 'dev/' : '';
+        }
+
+        function getFirebaseDbPath(path = '') {
+            return `${getFirebaseDbPrefix()}${String(path || '').replace(/^\/+/, '')}`;
+        }
+
+        function syncDevEnvironmentState() {
+            const enabled = isDevEnvironment();
+            window.IS_DEV_ENV = enabled;
+            window.DB_PREFIX = getFirebaseDbPrefix();
+            document.body?.classList.toggle('dev-environment', enabled);
+            renderDevEnvironmentBanner();
+        }
+
+        function renderDevEnvironmentBanner() {
+            let banner = document.getElementById('devEnvironmentBanner');
+            if (!isDevEnvironment()) {
+                if (banner) banner.remove();
+                return;
+            }
+            if (!banner) {
+                banner = document.createElement('div');
+                banner.id = 'devEnvironmentBanner';
+                document.body.prepend(banner);
+            }
+            banner.textContent = 'DEV ORTAMI - Canli veriye yazmaz';
+        }
+
+        window.isDevEnvironment = isDevEnvironment;
+        window.getFirebaseDbPrefix = getFirebaseDbPrefix;
+        window.getFirebaseDbPath = getFirebaseDbPath;
+        window.syncDevEnvironmentState = syncDevEnvironmentState;
 
         function buildFirebaseSession(firebaseUser, profile) {
             if (!firebaseUser || !profile) return null;
@@ -555,6 +606,7 @@
             const container = document.getElementById('userHeaderInfo');
             if (!currentUser || !container) return;
             const adminRole = currentUser.role === 'admin';
+            const devRole = String(currentUser.role || '').trim().toLowerCase() === 'dev';
             container.innerHTML = `
                 <span class="user-badge ${adminRole ? 'admin-badge' : ''}">
                     ${adminRole ? 'Admin' : 'Kullanıcı'} ${currentUser.paraf}
@@ -568,7 +620,7 @@
             const connectionClass = isFirebaseAvailable() ? 'online' : 'offline';
             container.innerHTML = `
                 <span class="user-badge ${adminRole ? 'admin-badge' : ''}">
-                    ${currentUser.paraf}
+                    ${currentUser.paraf}${devRole ? ' · DEV' : ''}
                 </span>
                 <span class="status-badge-header ${connectionClass}">
                     ${connectionLabel}
@@ -640,6 +692,15 @@
                 };
             }
 
+            if (String(currentUser.role || '').trim().toLowerCase() === 'dev') {
+                return {
+                    canViewOrders: true,
+                    canViewProductTree: true,
+                    canDeleteData: false,
+                    canViewQuickAccess: true
+                };
+            }
+
             const department = normalizeDepartmentName(currentUser.department);
             const departmentPermissions = {
                 uretim: {
@@ -698,7 +759,7 @@
             if (!hasMatchingFirebaseAuthSession()) return false;
             const role = String(currentUser.role || '').trim().toLowerCase();
             const department = normalizeDepartmentName(currentUser.department);
-            return role === 'admin' || department === 'uretim';
+            return role === 'admin' || role === 'dev' || department === 'uretim';
         }
 
         function canCreateManualSalesLines() {
@@ -706,7 +767,7 @@
             if (!hasMatchingFirebaseAuthSession()) return false;
             const role = String(currentUser.role || '').trim().toLowerCase();
             const department = normalizeDepartmentName(currentUser.department);
-            return role === 'admin' || department === 'uretim' || department === 'satis';
+            return role === 'admin' || role === 'dev' || department === 'uretim' || department === 'satis';
         }
 
         function buildSalesLinesPermissionState() {
@@ -716,8 +777,8 @@
             const department = normalizeDepartmentName(sessionUser?.department);
 
             return {
-                canManageSalesLineRequests: isTestLocalSession() || role === 'admin' || department === 'uretim',
-                canCreateManualSalesLines: isTestLocalSession() || role === 'admin' || department === 'uretim' || department === 'satis',
+                canManageSalesLineRequests: isTestLocalSession() || role === 'admin' || role === 'dev' || department === 'uretim',
+                canCreateManualSalesLines: isTestLocalSession() || role === 'admin' || role === 'dev' || department === 'uretim' || department === 'satis',
                 canDeleteSalesLines: role === 'admin',
                 testLocal: isTestLocalSession(),
                 currentUser: sessionUser || null
@@ -933,6 +994,33 @@
             document.getElementById('adminUserTableBody').innerHTML = rows;
         }
 
+        async function copyLiveDataToDevEnvironment() {
+            if (!isAdmin() || !firebaseReady || !firebaseSync?.copyLiveDataToDev) return;
+            if (!confirm('Canli orders, salesLines ve productTrees verileri dev ortamina kopyalansin mi?')) return;
+            try {
+                await firebaseSync.copyLiveDataToDev();
+                showToast('Canli veri dev ortamina kopyalandi.', 'success');
+            } catch (error) {
+                console.error(error);
+                showToast('Dev ortamina kopyalama basarisiz.', 'error');
+            }
+        }
+
+        async function clearDevEnvironmentData() {
+            if (!isAdmin() || !firebaseReady || !firebaseSync?.clearDevEnvironmentData) return;
+            if (!confirm('Dev ortami tamamen temizlenecek. Emin misiniz?')) return;
+            try {
+                await firebaseSync.clearDevEnvironmentData();
+                showToast('Dev ortami temizlendi.', 'warning');
+            } catch (error) {
+                console.error(error);
+                showToast('Dev ortami temizlenemedi.', 'error');
+            }
+        }
+
+        window.copyLiveDataToDevEnvironment = copyLiveDataToDevEnvironment;
+        window.clearDevEnvironmentData = clearDevEnvironmentData;
+
         async function approveUser(userId) {
             if (!isAdmin()) return;
 
@@ -1010,7 +1098,7 @@
 
                         // Onay kontrolü ekle
                         if (profile && !profile.disabled) {
-                            if (profile.role !== 'admin' && profile.isApproved === false) {
+                            if (profile.role !== 'admin' && profile.role !== 'dev' && profile.isApproved === false) {
                                 // Onaysız ise çıkış yap
                                 console.log('Kullanıcı onaylı değil, çıkış yapılıyor...');
                                 await FirebaseAuthManager.logout();
@@ -2006,8 +2094,8 @@
                 }
                 syncSalesLinesPermissionsToFrame();
             };
-    const salesLinesVersion = '20260601-sales-lines-sync-guard';
-    frame.src = `./sales-lines.html?v=${salesLinesVersion}${isTestLocalSession() ? '&testLocal=1' : ''}`;
+    const salesLinesVersion = '20260601-dev-env';
+    frame.src = `./sales-lines.html?v=${salesLinesVersion}${isTestLocalSession() ? '&testLocal=1' : ''}${isDevEnvironment() ? '&env=dev' : ''}`;
             frame.dataset.embeddedReady = 'true';
         }
 

@@ -74,7 +74,7 @@ const FirebaseAuthManager = {
             throw new Error('Bu hesap devre disi birakilmis.');
         }
 
-        if (profile.role !== 'admin' && profile.isApproved === false) {
+        if (profile.role !== 'admin' && profile.role !== 'dev' && profile.isApproved === false) {
             throw new Error('Hesabiniz henuz onaylanmadi. Lutfen admin onayi bekleyin.');
         }
 
@@ -345,7 +345,7 @@ const FirebaseAuthManager = {
 
             const updates = {};
             for (const [uid, profile] of Object.entries(data)) {
-                if (profile.role !== 'admin') {
+                if (profile.role !== 'admin' && profile.role !== 'dev') {
                     updates['users/' + uid] = null;
                 }
             }

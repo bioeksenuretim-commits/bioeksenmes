@@ -11,10 +11,26 @@ let editedLog = {}; // { orderId: [ {col, oldVal, newVal, time} ] }
 let salesLineRequestPending = {};
 const SALES_LINES_TEST_LOCAL_MODE = new URLSearchParams(window.location.search).get('testLocal') === '1';
 const SALES_LINES_STORAGE_KEY = SALES_LINES_TEST_LOCAL_MODE ? 'reaksiyon_test_sales_lines_data_v1' : 'reaksiyon_sales_lines_data_v1';
-const SALES_LINES_CLOUD_URL = 'https://reaksiyontalep-default-rtdb.europe-west1.firebasedatabase.app/salesLines/state.json';
-const SALES_LINES_V2_CLOUD_URL = 'https://reaksiyontalep-default-rtdb.europe-west1.firebasedatabase.app/salesLines/v2.json';
-const SALES_LINES_TODAY_OUTPUTS_CLOUD_BASE_URL = 'https://reaksiyontalep-default-rtdb.europe-west1.firebasedatabase.app/salesLines/v2/todayOutputs';
-const PRODUCT_TREES_CLOUD_URL = 'https://reaksiyontalep-default-rtdb.europe-west1.firebasedatabase.app/productTrees.json';
+const FIREBASE_DB_REST_BASE_URL = 'https://reaksiyontalep-default-rtdb.europe-west1.firebasedatabase.app';
+
+function getSalesLinesDbPrefix() {
+    try {
+        const parentPrefix = window.parent && window.parent !== window ? window.parent.DB_PREFIX : '';
+        if (parentPrefix) return String(parentPrefix).replace(/^\/+/, '');
+    } catch (_) {}
+    return new URLSearchParams(window.location.search).get('env') === 'dev' ? 'dev/' : '';
+}
+
+function buildFirebaseRestUrl(path, includeJson = true) {
+    const cleanPath = String(path || '').replace(/^\/+/, '');
+    const prefix = getSalesLinesDbPrefix();
+    return `${FIREBASE_DB_REST_BASE_URL}/${prefix}${cleanPath}${includeJson ? '.json' : ''}`;
+}
+
+const SALES_LINES_CLOUD_URL = buildFirebaseRestUrl('salesLines/state');
+const SALES_LINES_V2_CLOUD_URL = buildFirebaseRestUrl('salesLines/v2');
+const SALES_LINES_TODAY_OUTPUTS_CLOUD_BASE_URL = buildFirebaseRestUrl('salesLines/v2/todayOutputs', false);
+const PRODUCT_TREES_CLOUD_URL = buildFirebaseRestUrl('productTrees');
 const SALES_LINES_CACHE_DB_NAME = SALES_LINES_TEST_LOCAL_MODE ? 'ReaksiyonTestSalesLinesCache' : 'ReaksiyonSalesLinesCache';
 const SALES_LINES_CACHE_DB_VERSION = 2;
 const SALES_LINES_CACHE_STORE = 'payloads';

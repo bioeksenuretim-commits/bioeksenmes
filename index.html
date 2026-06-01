@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/css/modules.css">
-    <link rel="stylesheet" href="/css/app-main.css?v=20260601-sales-lines-sync-guard">
+    <link rel="stylesheet" href="/css/app-main.css?v=20260601-dev-env">
 
     <script defer src="/js/excel-loader.js?v=20260513-local-vendor"></script>
 
@@ -22,14 +22,14 @@
     <!-- Yeni Modüller -->
     <script defer src="/js/storage.js?v=20260508-tab-session"></script>
     <script defer src="/js/firebase-config.js?v=2"></script>
-    <script defer src="/js/firebase-auth.js?v=20260508-tab-session"></script>
-    <script defer src="/js/firebase-sync-v4.js?v=20260601-sales-lines-conflict-meta"></script>
+    <script defer src="/js/firebase-auth.js?v=20260601-dev-env"></script>
+    <script defer src="/js/firebase-sync-v4.js?v=20260601-dev-env"></script>
     <script defer src="/js/pagination.js?v=2"></script>
     <script defer src="/js/backup.js?v=20260601-sales-lines-sync-guard"></script>
     <script defer src="/js/advanced-filters.js?v=20260601-sales-lines-sync-guard"></script>
     <script defer src="/js/product-tree-excel-v4.js?v=20260601-sales-lines-sync-guard"></script>
     <script defer src="/js/product-tree-ui.js?v=20260601-sales-lines-sync-guard"></script>
-    <script defer src="/js/init-v4.js?v=20260601-init-filter-cleanup"></script>
+    <script defer src="/js/init-v4.js?v=20260601-dev-env"></script>
 </head>
 
 <body>
@@ -324,6 +324,14 @@
                     <div style="padding: 1.5rem;">
                         <div style="margin-bottom: 1rem; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; color: #475569; font-size: 0.86rem;">
                             Sifreler guvenlik nedeniyle goruntulenemez. Kullanici kendi mevcut sifresini dogrulayarak giris ekranindan sifresini degistirebilir.
+                        </div>
+                        <div id="devEnvironmentAdminTools" style="margin-bottom: 1rem; padding: 12px; border: 1px solid #f59e0b; border-radius: 8px; background: #fffbeb; color: #92400e;">
+                            <strong>Dev Ortami</strong>
+                            <div style="font-size: 0.84rem; margin: 4px 0 10px;">Canli veriyi test alanina kopyalayabilir veya dev verilerini temizleyebilirsiniz.</div>
+                            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                <button type="button" class="btn btn-sm btn-secondary" onclick="copyLiveDataToDevEnvironment()">Canli veriyi dev ortamina kopyala</button>
+                                <button type="button" class="btn btn-sm btn-danger" onclick="clearDevEnvironmentData()">Dev ortamini temizle</button>
+                            </div>
                         </div>
                         <table class="admin-user-table">
                             <thead>
@@ -1182,6 +1190,6 @@
     <div class="toast-container" id="toastContainer"></div>
 
     <script defer src="/js/orders-renderer-v1.js?v=20260601-sales-lines-sync-guard"></script>
-    <script defer src="/js/app-main-v4.js?v=20260601-sales-lines-sync-guard"></script>
+    <script defer src="/js/app-main-v4.js?v=20260601-dev-env"></script>
 </body>
 </html>

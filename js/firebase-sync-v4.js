@@ -49,19 +49,23 @@ var firebaseSync = {
             return;
         }
 
-        this.ordersRef = firebase.database().ref('orders');
-        this.ordersV2Ref = firebase.database().ref('ordersV2');
-        this.ordersRowsRef = firebase.database().ref('ordersV2/rows');
-        this.ordersMetaRef = firebase.database().ref('ordersV2/meta');
-        this.productTreesRef = firebase.database().ref('productTrees');
-        this.salesLinesRef = firebase.database().ref('salesLines/state');
-        this.salesLinesV2Ref = firebase.database().ref('salesLines/v2');
-        this.salesLinesRowsRef = firebase.database().ref('salesLines/v2/rows');
-        this.salesLinesEditedLogRef = firebase.database().ref('salesLines/v2/editedLog');
-        this.salesLinesMetaRef = firebase.database().ref('salesLines/v2/meta');
-        this.salesLinesTodayOutputsRef = firebase.database().ref('salesLines/v2/todayOutputs');
-        this.auditLogsRef = firebase.database().ref('auditLogs');
-        console.log('Firebase Sync başlatıldı');
+        const dbPath = typeof getFirebaseDbPath === 'function'
+            ? getFirebaseDbPath
+            : (path) => String(path || '').replace(/^\/+/, '');
+
+        this.ordersRef = firebase.database().ref(dbPath('orders'));
+        this.ordersV2Ref = firebase.database().ref(dbPath('ordersV2'));
+        this.ordersRowsRef = firebase.database().ref(dbPath('ordersV2/rows'));
+        this.ordersMetaRef = firebase.database().ref(dbPath('ordersV2/meta'));
+        this.productTreesRef = firebase.database().ref(dbPath('productTrees'));
+        this.salesLinesRef = firebase.database().ref(dbPath('salesLines/state'));
+        this.salesLinesV2Ref = firebase.database().ref(dbPath('salesLines/v2'));
+        this.salesLinesRowsRef = firebase.database().ref(dbPath('salesLines/v2/rows'));
+        this.salesLinesEditedLogRef = firebase.database().ref(dbPath('salesLines/v2/editedLog'));
+        this.salesLinesMetaRef = firebase.database().ref(dbPath('salesLines/v2/meta'));
+        this.salesLinesTodayOutputsRef = firebase.database().ref(dbPath('salesLines/v2/todayOutputs'));
+        this.auditLogsRef = firebase.database().ref(dbPath('auditLogs'));
+        console.log(`Firebase Sync baslatildi${typeof isDevEnvironment === 'function' && isDevEnvironment() ? ' (DEV)' : ''}`);
     },
 
     cloneData(value) {
@@ -1908,6 +1912,26 @@ var firebaseSync = {
             this.salesLinesEmitTimer = null;
         }
         this.isSalesLinesListening = false;
+    },
+
+    async copyLiveDataToDev() {
+        if (!firebaseReady) return false;
+        const db = firebase.database();
+        const paths = ['orders', 'ordersV2', 'productTrees', 'salesLines'];
+        const updates = {};
+        const snapshots = await Promise.all(paths.map(path => db.ref(path).once('value')));
+        snapshots.forEach((snapshot, index) => {
+            updates[`dev/${paths[index]}`] = snapshot.val() || null;
+        });
+        updates['dev/meta/copiedFromLiveAt'] = new Date().toISOString();
+        await db.ref().update(updates);
+        return true;
+    },
+
+    async clearDevEnvironmentData() {
+        if (!firebaseReady) return false;
+        await firebase.database().ref('dev').remove();
+        return true;
     }
 };
 
