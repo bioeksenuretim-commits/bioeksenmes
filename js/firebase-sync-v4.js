@@ -1657,7 +1657,9 @@ var firebaseSync = {
             await this.salesLinesEditedLogRef.child(key).remove();
         }
 
-        await this.syncSalesLinesMetaPayload(normalizedPayload, options);
+        if (conflicts.length === 0) {
+            await this.syncSalesLinesMetaPayload(normalizedPayload, options);
+        }
         if (conflicts.length && typeof setSyncStatus === 'function') {
             setSyncStatus('conflict', `${conflicts.length} satış satırı karar bekliyor.`);
         }
