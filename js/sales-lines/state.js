@@ -1249,16 +1249,54 @@ async function confirmBulkPassSalesLineRequests() {
 
 function getSalesLinesPayloadSignature(payload) {
     if (!payload) return '';
+
     try {
+        const meta = payload.meta || {};
+        const syncMode = String(meta.syncMode || '').trim();
+        const rowCount = getSalesLinesPayloadRowCount(payload);
+
+        if (syncMode === 'row-patch') {
+            return JSON.stringify({
+                version: payload.version || 1,
+                savedAt: payload.savedAt || '',
+                syncMode,
+                rowCount,
+                changedRowIds: Array.isArray(meta.changedRowIds) ? meta.changedRowIds : [],
+                deletedRowIds: Array.isArray(meta.deletedRowIds) ? meta.deletedRowIds : [],
+                rowBaseMeta: meta.rowBaseMeta || {}
+            });
+        }
+
+        if (syncMode === 'meta-only') {
+            return JSON.stringify({
+                version: payload.version || 1,
+                savedAt: payload.savedAt || '',
+                syncMode,
+                rowCount,
+                meta: {
+                    source: meta.source || '',
+                    action: meta.action || '',
+                    todayOutputsDate: meta.todayOutputsDate || '',
+                    todayOutputOrderIds: Array.isArray(meta.todayOutputOrderIds)
+                        ? meta.todayOutputOrderIds
+                        : []
+                }
+            });
+        }
+
         return JSON.stringify({
             version: payload.version || 1,
             savedAt: payload.savedAt || '',
-            meta: payload.meta || {},
-            editedLog: payload.editedLog || {},
-            allOrders: Array.isArray(payload.allOrders) ? payload.allOrders : []
+            syncMode,
+            rowCount,
+            source: meta.source || '',
+            sourceFile: meta.sourceFile || '',
+            reset: !!meta.reset,
+            fullSync: !!meta.fullSync
         });
-    } catch (_) {
-        return String(payload.savedAt || '');
+    } catch (error) {
+        console.warn('Sales lines signature üretilemedi:', error);
+        return String(payload?.savedAt || '');
     }
 }
 
