@@ -334,6 +334,7 @@ function getDetailConfig(type) {
     let title = '';
     const isEdited = type === 'edited';
     const isTodayOutputs = type === 'todayOutputs';
+    const showHistoryButton = isTodayOutputs || type === 'output';
     if (isEdited) {
         orders = getEditedOrders();
         title = 'Değişiklik Yapılan Siparişler';
@@ -364,7 +365,7 @@ function getDetailConfig(type) {
         : DEFAULT_DETAIL_COLUMNS;
     const cols = getPersonalizedDetailColumns(baseCols);
     const filterCols = isEdited ? [...cols, '__changes'] : cols;
-    return { orders, title, isEdited, isTodayOutputs, cols, filterCols };
+    return { orders, title, isEdited, isTodayOutputs, showHistoryButton, cols, filterCols };
 }
 
 function getDetailCellText(order, col) {
@@ -420,7 +421,7 @@ function detailOrderMatchesFilters(order, filterCols) {
 
 function openDetail(type) {
     currentDetailType = type;
-    const { orders, title, isEdited, isTodayOutputs, cols, filterCols } = getDetailConfig(type);
+    const { orders, title, isEdited, showHistoryButton, cols, filterCols } = getDetailConfig(type);
     const visibleOrders = orders.filter(order => detailOrderMatchesFilters(order, filterCols));
 
     document.getElementById('detailTitle').textContent = title;
@@ -441,12 +442,12 @@ function openDetail(type) {
         const filterClass = filters.__changes && filters.__changes.size > 0 ? 'active-filter' : '';
         hHtml += `<th style="min-width:220px;" data-detail-col="__changes">Değişiklikler <span class="filter-icon ${filterClass}" onclick="event.stopPropagation();openDetailColFilter(event,'__changes')" title="Filtrele">▼</span></th>`;
     }
-    if (isTodayOutputs) {
+    if (showHistoryButton) {
         hHtml += `<th style="min-width:120px;">Değişiklikler</th>`;
     }
     document.getElementById('detailHeader').innerHTML = hHtml;
 
-    const colSpan = cols.length + 1 + (isEdited ? 1 : 0) + (isTodayOutputs ? 1 : 0);
+    const colSpan = cols.length + 1 + (isEdited ? 1 : 0) + (showHistoryButton ? 1 : 0);
     let bHtml = '';
     detailRowValuesById = new Map();
     if (visibleOrders.length === 0) {
@@ -492,7 +493,7 @@ function openDetail(type) {
                 });
                 bHtml += `<td style="white-space:normal;max-width:300px;">${parts.join('')}</td>`;
             }
-            if (isTodayOutputs) {
+            if (showHistoryButton) {
                 const changeCount = Array.isArray(editedLog[o._id]) ? editedLog[o._id].length : 0;
                 const disabled = changeCount > 0 ? '' : ' disabled';
                 bHtml += `<td><button type="button" class="btn btn-sm" onclick="event.stopPropagation();openSalesLineHistoryModal('${esc(o._id)}')"${disabled}>Geçmiş${changeCount > 0 ? ` (${changeCount})` : ''}</button></td>`;
