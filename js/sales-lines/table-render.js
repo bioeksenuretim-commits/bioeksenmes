@@ -21,7 +21,10 @@ function renderSalesOrderNoDisplay(order, options = {}) {
 
 function setSalesLineOrderValue(order, col, value, baseMeta = null) {
     if (!order) return false;
-    const rowBaseMeta = baseMeta || getSalesLineRowSyncMeta(order);
+    const rowBaseMeta = {
+        ...(baseMeta || getSalesLineRowSyncMeta(order)),
+        rowSnapshot: cloneSalesLinePlainValue(order)
+    };
     const oldDisplay = getSalesLineDisplayValue(order, col);
     const rawDisplay = String(value ?? '').trim();
     const newDisplay = col === CUSTOMER_MARKET_COLUMN
@@ -55,7 +58,7 @@ function setSalesLineOrderValue(order, col, value, baseMeta = null) {
     if (col === 'Sipariş Tarihi') order._siparisTarihi = parseDate(newDisplay);
     if (col === 'Teslim Tarihi') order._teslimTarihi = parseDate(newDisplay);
     refreshSalesLineSearchIndex(order);
-    queueSalesLineRowChange(order, rowBaseMeta);
+    queueSalesLineRowChange(order, rowBaseMeta, col);
     return true;
 }
 
@@ -67,20 +70,26 @@ function getBulkEditTargetOrders(sourceId) {
 
 function applyPartialOutputMetadata(sourceId, outputQty) {
     getBulkEditTargetOrders(sourceId).forEach(order => {
-        const baseMeta = getSalesLineRowSyncMeta(order);
+        const baseMeta = {
+            ...getSalesLineRowSyncMeta(order),
+            rowSnapshot: cloneSalesLinePlainValue(order)
+        };
         order._partialOutputOriginalQty = String(order._partialOutputOriginalQty || order['Miktar'] || '');
         order._partialOutputQty = String(outputQty || '').trim();
-        queueSalesLineRowChange(order, baseMeta);
+        queueSalesLineRowChange(order, baseMeta, ['_partialOutputOriginalQty', '_partialOutputQty']);
     });
 }
 
 function clearPartialOutputMetadata(sourceId) {
     getBulkEditTargetOrders(sourceId).forEach(order => {
         if (!('_partialOutputQty' in order) && !('_partialOutputOriginalQty' in order)) return;
-        const baseMeta = getSalesLineRowSyncMeta(order);
+        const baseMeta = {
+            ...getSalesLineRowSyncMeta(order),
+            rowSnapshot: cloneSalesLinePlainValue(order)
+        };
         delete order._partialOutputQty;
         delete order._partialOutputOriginalQty;
-        queueSalesLineRowChange(order, baseMeta);
+        queueSalesLineRowChange(order, baseMeta, ['_partialOutputOriginalQty', '_partialOutputQty']);
     });
 }
 
@@ -936,6 +945,7 @@ function resetAllChanges() {
     pendingChangedSalesLineRowIds = new Set();
     pendingDeletedSalesLineRowIds = new Set();
     pendingSalesLineRowBaseMeta = {};
+    pendingSalesLineChangedColumns = {};
     serializedSalesLineOrderCache = new Map();
     columnOrder = accountColumnOrderLoaded ? normalizePersonalizationColumnOrder(columnOrder) : [...DEFAULT_SALES_LINE_COLUMN_ORDER];
     localStorage.removeItem(SALES_LINES_STORAGE_KEY);

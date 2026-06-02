@@ -513,6 +513,33 @@
             font-size: 12px;
             color: var(--danger);
         }
+        .conflict-diff-table-wrap {
+            overflow-x: auto;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+        }
+        .conflict-diff-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+        .conflict-diff-table th,
+        .conflict-diff-table td {
+            padding: 8px;
+            border-bottom: 1px solid var(--border);
+            text-align: left;
+            vertical-align: top;
+            white-space: normal;
+            word-break: break-word;
+        }
+        .conflict-diff-table th {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            font-weight: 700;
+        }
+        .conflict-diff-table tr:last-child td {
+            border-bottom: 0;
+        }
         .sales-order-link {
             color: var(--accent);
             font-weight: 600;

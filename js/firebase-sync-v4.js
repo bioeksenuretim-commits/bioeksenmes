@@ -501,6 +501,13 @@ var firebaseSync = {
             });
             normalizedMeta.rowBaseMeta = nextBaseMeta;
         }
+        if (normalizedMeta.changedColumnsByRow && typeof normalizedMeta.changedColumnsByRow === 'object') {
+            const nextChangedColumnsByRow = {};
+            Object.entries(normalizedMeta.changedColumnsByRow).forEach(([id, value]) => {
+                nextChangedColumnsByRow[idMap.get(String(id)) || String(id)] = value;
+            });
+            normalizedMeta.changedColumnsByRow = nextChangedColumnsByRow;
+        }
         return { orders: normalizedOrders, editedLog: normalizedEditedLog, meta: normalizedMeta };
     },
 
@@ -587,7 +594,38 @@ var firebaseSync = {
         return Number.isFinite(version) ? version : 0;
     },
 
-    buildSalesLineConflict(id, type, localOrder, currentEntry, baseMeta = {}, key = '') {
+    normalizeSalesLineColumnList(columns) {
+        return Array.from(new Set((Array.isArray(columns) ? columns : [])
+            .map(col => String(col || '').trim())
+            .filter(Boolean)));
+    },
+
+    getSalesLineChangedColumnsBetween(baseRow = {}, nextRow = {}) {
+        if (!baseRow || !nextRow || typeof baseRow !== 'object' || typeof nextRow !== 'object') return [];
+        const ignored = new Set(['_sync', '_rowVersion', '_rowUpdatedAt', '_rowUpdatedByUid', '_rowUpdatedBy', '_baseRowVersion', '_baseRowUpdatedAt', '_searchIndex']);
+        return this.normalizeSalesLineColumnList(Object.keys({ ...baseRow, ...nextRow })
+            .filter(col => !ignored.has(col))
+            .filter(col => this.getComparableString(baseRow[col]) !== this.getComparableString(nextRow[col])));
+    },
+
+    salesLineColumnsIntersect(left = [], right = []) {
+        const rightSet = new Set(this.normalizeSalesLineColumnList(right));
+        return this.normalizeSalesLineColumnList(left).some(col => rightSet.has(col));
+    },
+
+    buildMergedSalesLineRow(remoteRow, localRow, localChangedColumns = []) {
+        const merged = this.cloneData(remoteRow || {});
+        this.normalizeSalesLineColumnList(localChangedColumns).forEach(col => {
+            if (Object.prototype.hasOwnProperty.call(localRow || {}, col)) {
+                merged[col] = this.cloneData(localRow[col]);
+            } else {
+                delete merged[col];
+            }
+        });
+        return merged;
+    },
+
+    buildSalesLineConflict(id, type, localOrder, currentEntry, baseMeta = {}, key = '', extra = {}) {
         const remoteRow = this.parseSalesLineRowEntry(currentEntry);
         return {
             id,
@@ -596,6 +634,8 @@ var firebaseSync = {
             localRow: this.cloneData(localOrder || {}),
             remoteRow: this.cloneData(remoteRow || {}),
             baseMeta: this.cloneData(baseMeta || {}),
+            localChangedColumns: this.normalizeSalesLineColumnList(extra.localChangedColumns || []),
+            remoteChangedColumns: this.normalizeSalesLineColumnList(extra.remoteChangedColumns || []),
             remoteMeta: {
                 updatedAt: currentEntry?.rowUpdatedAt || remoteRow?._sync?.updatedAt || remoteRow?._rowUpdatedAt || '',
                 version: this.getSalesLineRowEntryVersion(currentEntry),
@@ -617,6 +657,7 @@ var firebaseSync = {
         delete sanitized.changedRowIds;
         delete sanitized.deletedRowIds;
         delete sanitized.rowBaseMeta;
+        delete sanitized.changedColumnsByRow;
         delete sanitized.todayOutputOrderIds;
         delete sanitized.todayOutputsDate;
         delete sanitized.todayOutputsMeta;
@@ -1572,6 +1613,7 @@ var firebaseSync = {
         const changedRowIds = this.getSalesLinePatchRowIds(normalizedPayload, 'changedRowIds');
         const deletedRowIds = this.getSalesLinePatchRowIds(normalizedPayload, 'deletedRowIds');
         const rowBaseMeta = normalizedPayload.meta?.rowBaseMeta || {};
+        const changedColumnsByRow = normalizedPayload.meta?.changedColumnsByRow || {};
         const ordersById = new Map();
         (normalizedPayload.allOrders || []).forEach((order, index) => {
             const id = String(order?._id || order?.id || '').trim();
@@ -1589,7 +1631,11 @@ var firebaseSync = {
             const incomingTime = this.getSalesLineRowEntryTime(incomingEntry);
             const baseTime = Date.parse(rowBaseMeta[id]?.updatedAt || '') || 0;
             const baseVersion = Number(rowBaseMeta[id]?.version || 0) || 0;
+            const baseRowSnapshot = rowBaseMeta[id]?.rowSnapshot || null;
+            const localChangedColumns = this.normalizeSalesLineColumnList(changedColumnsByRow[id] || []);
+            let remoteChangedColumns = [];
             let rejected = false;
+            let autoMerged = false;
             let conflictCurrent = null;
 
             await this.salesLinesRowsRef.child(key).transaction(current => {
@@ -1602,16 +1648,28 @@ var firebaseSync = {
                     return;
                 }
                 const currentVersion = this.getSalesLineRowEntryVersion(current);
-                if (current && currentVersion !== baseVersion) {
-                    rejected = true;
-                    return;
-                }
                 const currentTime = this.getSalesLineRowEntryTime(current);
-                if (baseTime && currentTime && currentTime > baseTime) {
-                    rejected = true;
-                    return;
-                }
-                if (!baseTime && currentTime && incomingTime && currentTime > incomingTime) {
+                const versionConflict = current && currentVersion !== baseVersion;
+                const timeConflict = (baseTime && currentTime && currentTime > baseTime)
+                    || (!baseTime && currentTime && incomingTime && currentTime > incomingTime);
+                if (versionConflict || timeConflict) {
+                    const remoteRow = this.parseSalesLineRowEntry(current);
+                    remoteChangedColumns = this.getSalesLineChangedColumnsBetween(baseRowSnapshot, remoteRow);
+                    if (baseRowSnapshot && localChangedColumns.length > 0 && !this.salesLineColumnsIntersect(localChangedColumns, remoteChangedColumns)) {
+                        const mergedRow = this.buildMergedSalesLineRow(remoteRow, item.order, localChangedColumns);
+                        const mergedEntry = this.buildSalesLineRowEntry({
+                            ...mergedRow,
+                            _sync: {
+                                ...(mergedRow._sync || {}),
+                                version: Number(currentVersion || baseVersion || 0) + 1,
+                                updatedAt: new Date().toISOString(),
+                                updatedByUid: item.order?._sync?.updatedByUid || item.order?._rowUpdatedByUid || null,
+                                updatedByParaf: item.order?._sync?.updatedByParaf || item.order?._rowUpdatedBy || ''
+                            }
+                        }, item.index);
+                        autoMerged = true;
+                        return mergedEntry;
+                    }
                     rejected = true;
                     return;
                 }
@@ -1619,10 +1677,16 @@ var firebaseSync = {
             });
 
             if (rejected) {
-                conflicts.push(this.buildSalesLineConflict(id, 'update', item.order, conflictCurrent, rowBaseMeta[id], key));
+                conflicts.push(this.buildSalesLineConflict(id, 'update', item.order, conflictCurrent, rowBaseMeta[id], key, {
+                    localChangedColumns,
+                    remoteChangedColumns
+                }));
                 continue;
             }
             changedRows += 1;
+            if (autoMerged && typeof showToast === 'function') {
+                showToast('FarklÄ± alanlar deÄŸiÅŸtiÄŸi iÃ§in satÄ±r otomatik birleÅŸtirildi.', 'info');
+            }
             if (normalizedPayload.editedLog && Object.prototype.hasOwnProperty.call(normalizedPayload.editedLog, id)) {
                 await this.salesLinesEditedLogRef.child(this.encodeDatabaseKey(id)).set({
                     logJson: JSON.stringify(this.cloneData(normalizedPayload.editedLog[id] || []))

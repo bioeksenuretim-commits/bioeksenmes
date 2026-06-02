@@ -96,6 +96,7 @@ let todayOutputOrderIds = new Set();
 let pendingChangedSalesLineRowIds = new Set();
 let pendingDeletedSalesLineRowIds = new Set();
 let pendingSalesLineRowBaseMeta = {};
+let pendingSalesLineChangedColumns = {};
 let salesLineConflictQueue = [];
 let serializedSalesLineOrderCache = new Map();
 const SALES_LINES_COLUMN_WIDTHS_KEY = 'sales_lines_column_widths_v1';
@@ -1658,6 +1659,74 @@ function getSalesLineConflictIds(result) {
         : [];
 }
 
+function cloneSalesLinePlainValue(value) {
+    if (value === undefined || value === null) return value;
+    try {
+        return JSON.parse(JSON.stringify(value));
+    } catch (_) {
+        return value;
+    }
+}
+
+function normalizeSalesLineColumnList(columns) {
+    if (columns instanceof Set) columns = Array.from(columns);
+    return Array.from(new Set((Array.isArray(columns) ? columns : [])
+        .map(col => String(col || '').trim())
+        .filter(Boolean)));
+}
+
+function rememberPendingSalesLineChangedColumn(id, changedCol) {
+    const key = String(id || '').trim();
+    const col = String(changedCol || '').trim();
+    if (!key || !col) return;
+    if (!pendingSalesLineChangedColumns[key]) pendingSalesLineChangedColumns[key] = new Set();
+    if (!(pendingSalesLineChangedColumns[key] instanceof Set)) {
+        pendingSalesLineChangedColumns[key] = new Set(normalizeSalesLineColumnList(pendingSalesLineChangedColumns[key]));
+    }
+    pendingSalesLineChangedColumns[key].add(col);
+}
+
+function getPendingSalesLineChangedColumns(id) {
+    return normalizeSalesLineColumnList(pendingSalesLineChangedColumns[String(id || '').trim()]);
+}
+
+function buildPendingSalesLineChangedColumnsByRow(rowIds) {
+    const result = {};
+    (Array.isArray(rowIds) ? rowIds : []).forEach(id => {
+        const key = String(id || '').trim();
+        const cols = getPendingSalesLineChangedColumns(key);
+        if (key && cols.length > 0) result[key] = cols;
+    });
+    return result;
+}
+
+function clearPendingSalesLineColumnState(id) {
+    delete pendingSalesLineChangedColumns[String(id || '').trim()];
+}
+
+function getSalesLineConflictChangedColumns(item) {
+    return normalizeSalesLineColumnList([
+        ...(item?.localChangedColumns || []),
+        ...(item?.remoteChangedColumns || item?.remoteChangedFields || [])
+    ]);
+}
+
+function getSalesLineConflictDiffRows(item) {
+    const localRow = item?.localRow || {};
+    const remoteRow = item?.remoteRow || {};
+    let columns = getSalesLineConflictChangedColumns(item);
+    if (columns.length === 0) {
+        columns = normalizeSalesLineColumnList(Object.keys({ ...localRow, ...remoteRow })
+            .filter(col => !String(col).startsWith('_'))
+            .filter(col => String(localRow[col] ?? '') !== String(remoteRow[col] ?? '')));
+    }
+    return columns.map(col => ({
+        col,
+        local: localRow[col],
+        remote: remoteRow[col]
+    }));
+}
+
 function isSalesLinesCloudSaveSuccessful(result) {
     if (result === true) return true;
     if (result && typeof result === 'object') return result.ok !== false || Array.isArray(result.conflicts);
@@ -1723,6 +1792,21 @@ function renderSalesLineConflictModal() {
         const remoteRow = item.remoteRow || {};
         const label = getSalesLineConflictLabel(localRow) || getSalesLineConflictLabel(remoteRow);
         const safeIdArg = JSON.stringify(String(item.id || '')).replace(/"/g, '&quot;');
+        const diffRows = getSalesLineConflictDiffRows(item);
+        const diffHtml = diffRows.length
+            ? `<div class="conflict-diff-table-wrap">
+                <table class="conflict-diff-table">
+                    <thead><tr><th>Alan</th><th>Sizin degeriniz</th><th>Merkezdeki deger</th></tr></thead>
+                    <tbody>${diffRows.map(row => `
+                        <tr>
+                            <td>${esc(row.col)}</td>
+                            <td>${esc(String(row.local ?? ''))}</td>
+                            <td>${esc(String(row.remote ?? ''))}</td>
+                        </tr>
+                    `).join('')}</tbody>
+                </table>
+            </div>`
+            : '<div class="conflict-card-warning">Alan bilgisi eksik oldugu icin satir bazli guvenli cozum kullaniliyor.</div>';
         return `
             <div class="conflict-card">
                 <div class="conflict-card-title">${esc(label)}</div>
@@ -1733,6 +1817,7 @@ function renderSalesLineConflictModal() {
                     <div><strong>İşlem:</strong> ${item.type === 'delete' ? 'Silme' : 'Güncelleme'}</div>
                 </div>
                 <div class="conflict-card-warning">Merkezdeki satır siz düzenlerken değişmiş. Otomatik üzerine yazılmadı.</div>
+                ${diffHtml}
                 <div class="conflict-card-actions">
                     <button class="btn btn-sm" type="button" onclick="resolveSalesLineConflictUseRemote(${safeIdArg})">Merkezi veriyi kullan</button>
                     <button class="btn btn-sm btn-danger" type="button" onclick="resolveSalesLineConflictUseMine(${safeIdArg})">Benim değişikliğimi uygula</button>
@@ -1754,8 +1839,11 @@ function closeSalesLineConflictModal() {
 function buildSalesLinesPayloadForRows(rowIds, meta = {}, options = {}) {
     const normalizedRowIds = Array.from(new Set(rowIds.map(id => String(id || '').trim()).filter(Boolean)));
     const rowBaseMeta = {};
+    const changedColumnsByRow = {};
     normalizedRowIds.forEach(id => {
         rowBaseMeta[id] = options.rowBaseMeta?.[id] || pendingSalesLineRowBaseMeta[id] || {};
+        const cols = normalizeSalesLineColumnList(options.changedColumnsByRow?.[id] || pendingSalesLineChangedColumns[id]);
+        if (cols.length > 0) changedColumnsByRow[id] = cols;
     });
     return {
         version: 1,
@@ -1766,6 +1854,7 @@ function buildSalesLinesPayloadForRows(rowIds, meta = {}, options = {}) {
             changedRowIds: normalizedRowIds,
             deletedRowIds: [],
             rowBaseMeta,
+            changedColumnsByRow,
             ...meta
         },
         editedLog,
@@ -1788,6 +1877,7 @@ function replaceSalesLineOrderFromRemote(remoteRow) {
     pendingChangedSalesLineRowIds.delete(id);
     pendingDeletedSalesLineRowIds.delete(id);
     delete pendingSalesLineRowBaseMeta[id];
+    clearPendingSalesLineColumnState(id);
     return true;
 }
 
@@ -1832,17 +1922,19 @@ async function resolveSalesLineConflictUseMine(id) {
     }
     pendingChangedSalesLineRowIds.delete(String(id));
     delete pendingSalesLineRowBaseMeta[String(id)];
+    clearPendingSalesLineColumnState(id);
     removeSalesLineConflict(id);
     showToast('Sizin değişikliğiniz merkeze uygulandı', 'success');
 }
 
-function queueSalesLineRowChange(order, baseMeta = null) {
+function queueSalesLineRowChange(order, baseMeta = null, changedCol = null) {
     if (!order || !order._id) return;
     const id = String(order._id);
     const previousMeta = {
         ...getSalesLineRowSyncMeta(order),
         ...(baseMeta || {})
     };
+    if (!previousMeta.rowSnapshot) previousMeta.rowSnapshot = cloneSalesLinePlainValue(order);
     if (!pendingSalesLineRowBaseMeta[id]) {
         pendingSalesLineRowBaseMeta[id] = previousMeta;
     }
@@ -1857,6 +1949,8 @@ function queueSalesLineRowChange(order, baseMeta = null) {
     });
     pendingChangedSalesLineRowIds.add(id);
     pendingDeletedSalesLineRowIds.delete(id);
+    normalizeSalesLineColumnList(Array.isArray(changedCol) ? changedCol : [changedCol])
+        .forEach(col => rememberPendingSalesLineChangedColumn(id, col));
 }
 
 function queueSalesLineRowDelete(order) {
@@ -1868,6 +1962,7 @@ function queueSalesLineRowDelete(order) {
     order._baseRowVersion = pendingSalesLineRowBaseMeta[id].version || 0;
     order._baseRowUpdatedAt = pendingSalesLineRowBaseMeta[id].updatedAt || '';
     pendingChangedSalesLineRowIds.delete(id);
+    clearPendingSalesLineColumnState(id);
     pendingDeletedSalesLineRowIds.add(id);
 }
 
@@ -2157,12 +2252,14 @@ async function saveSalesLinesState(meta = {}, options = {}) {
         [...changedRowIds, ...deletedRowIds].forEach(id => {
             rowBaseMeta[id] = pendingSalesLineRowBaseMeta[id] || {};
         });
+        const changedColumnsByRow = buildPendingSalesLineChangedColumnsByRow(changedRowIds);
         if (!fullSync) {
             if (changedRowIds.length || deletedRowIds.length) {
                 normalizedMeta.syncMode = 'row-patch';
                 normalizedMeta.changedRowIds = changedRowIds;
                 normalizedMeta.deletedRowIds = deletedRowIds;
                 normalizedMeta.rowBaseMeta = rowBaseMeta;
+                normalizedMeta.changedColumnsByRow = changedColumnsByRow;
             } else {
                 normalizedMeta.syncMode = 'meta-only';
             }
@@ -2194,6 +2291,7 @@ async function saveSalesLinesState(meta = {}, options = {}) {
         const conflictIds = new Set(getSalesLineConflictIds(saved));
         changedRowIds.forEach(id => {
             if (!conflictIds.has(id)) pendingChangedSalesLineRowIds.delete(id);
+            if (!conflictIds.has(id)) clearPendingSalesLineColumnState(id);
         });
         deletedRowIds.forEach(id => {
             if (!conflictIds.has(id)) pendingDeletedSalesLineRowIds.delete(id);
