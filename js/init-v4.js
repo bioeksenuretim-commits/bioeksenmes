@@ -1,4 +1,4 @@
-const APP_BUILD_VERSION = '20260602-header-notifications-001';
+const APP_BUILD_VERSION = '20260602-manual-notifications-001';
 window.APP_BUILD_VERSION = APP_BUILD_VERSION;
 console.log('APP_BUILD v4 aktif', APP_BUILD_VERSION);
 /**
@@ -66,12 +66,20 @@ const ORDERS_REALTIME_FRESH_MS = 45000;
 const SALES_LINES_REALTIME_FRESH_MS = 45000;
 let buildVersionListenerStarted = false;
 let buildVersionRef = null;
-let devNotificationsPanelBound = false;
-const devNotifications = [];
+let manualNotificationsPanelBound = false;
+const manualNotifications = [];
 
-function isDevUser() {
+function isManualNotificationUser() {
     const user = window.currentUser || (typeof currentUser !== 'undefined' ? currentUser : null);
-    return String(user?.role || '').trim().toLowerCase() === 'dev';
+    if (typeof canCreateManualSalesLines === 'function') return canCreateManualSalesLines();
+    const role = String(user?.role || '').trim().toLowerCase();
+    const department = String(user?.department || '')
+        .trim()
+        .toLocaleLowerCase('tr')
+        .replace(/ı/g, 'i')
+        .replace(/ş/g, 's')
+        .replace(/ü/g, 'u');
+    return role === 'admin' || role === 'dev' || role === 'manual' || role === 'manuel' || department === 'uretim' || department === 'satis';
 }
 
 function escapeNotificationText(value) {
@@ -85,8 +93,8 @@ function escapeNotificationText(value) {
 
 function addDevNotification(notification = {}) {
     const id = String(notification.id || '').trim();
-    if (!id || devNotifications.some(item => item.id === id)) return;
-    devNotifications.unshift({
+    if (!id || manualNotifications.some(item => item.id === id)) return;
+    manualNotifications.unshift({
         id,
         type: notification.type || 'info',
         title: notification.title || 'Bildirim',
@@ -103,7 +111,7 @@ function closeDevNotificationsPanel() {
 
 function toggleDevNotificationsPanel(event) {
     event?.stopPropagation?.();
-    if (!isDevUser()) return;
+    if (!isManualNotificationUser()) return;
     const panel = document.getElementById('devNotificationPanel');
     if (!panel) return;
     panel.classList.toggle('open');
@@ -116,20 +124,20 @@ function renderDevNotifications() {
     const dot = document.getElementById('devNotificationDot');
     if (!wrapper || !list || !dot) return;
 
-    const visible = isDevUser();
+    const visible = isManualNotificationUser();
     wrapper.style.display = visible ? 'inline-flex' : 'none';
     if (!visible) {
         closeDevNotificationsPanel();
         return;
     }
 
-    dot.style.display = devNotifications.length > 0 ? '' : 'none';
-    if (devNotifications.length === 0) {
+    dot.style.display = manualNotifications.length > 0 ? '' : 'none';
+    if (manualNotifications.length === 0) {
         list.innerHTML = '<div class="notification-empty">Yeni bildirim yok.</div>';
         return;
     }
 
-    list.innerHTML = devNotifications.map(item => `
+    list.innerHTML = manualNotifications.map(item => `
         <div class="notification-item" data-notification-id="${escapeNotificationText(item.id)}">
             <div class="notification-item-title">${escapeNotificationText(item.title)}</div>
             <div class="notification-item-message">${escapeNotificationText(item.message)}</div>
@@ -139,8 +147,8 @@ function renderDevNotifications() {
         </div>
     `).join('');
 
-    if (!devNotificationsPanelBound) {
-        devNotificationsPanelBound = true;
+    if (!manualNotificationsPanelBound) {
+        manualNotificationsPanelBound = true;
         document.addEventListener('click', event => {
             const wrapperEl = document.getElementById('devNotificationWrapper');
             if (wrapperEl && !wrapperEl.contains(event.target)) closeDevNotificationsPanel();
@@ -148,7 +156,7 @@ function renderDevNotifications() {
     }
 }
 
-window.isDevUser = isDevUser;
+window.isManualNotificationUser = isManualNotificationUser;
 window.addDevNotification = addDevNotification;
 window.renderDevNotifications = renderDevNotifications;
 window.toggleDevNotificationsPanel = toggleDevNotificationsPanel;
