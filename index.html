@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/css/modules.css">
-    <link rel="stylesheet" href="/css/app-main.css?v=20260602-update-banner">
+    <link rel="stylesheet" href="/css/app-main.css?v=20260602-header-notifications">
 
     <script defer src="/js/excel-loader.js?v=20260513-local-vendor"></script>
 
@@ -29,7 +29,7 @@
     <script defer src="/js/advanced-filters.js?v=20260601-sales-lines-sync-guard"></script>
     <script defer src="/js/product-tree-excel-v4.js?v=20260601-sales-lines-sync-guard"></script>
     <script defer src="/js/product-tree-ui.js?v=20260601-sales-lines-sync-guard"></script>
-    <script defer src="/js/init-v4.js?v=20260602-update-banner"></script>
+    <script defer src="/js/init-v4.js?v=20260602-header-notifications"></script>
 </head>
 
 <body>
@@ -152,13 +152,13 @@
     </div>
 
     <!-- Header -->
-    <header class="header">
-        <div class="header-content">
-            <div class="logo">
+    <header class="header app-header">
+        <div class="header-content app-header-content">
+            <div class="logo app-header-left">
                 <div class="logo-icon">gysa</div>
-                <div class="logo-text">
+                <div class="logo-text app-header-brand">
                     <h1>Üretim ve Sipariş Takip Sistemi</h1>
-                    <span>Üretim ve Sipariş Takip Sistemi</span>
+                    <span>Reaksiyon Strip Yönetim Paneli</span>
                 </div>
             </div>
 
@@ -187,11 +187,24 @@
                 <button class="nav-tab" data-tab="destroyed-view">İmha Edilen</button>
             </div>
 
-            <div class="header-tools">
-                <div class="header-primary-nav">
-                    <button type="button" class="header-primary-btn active" id="headerPrimaryDashboardBtn" data-primary-tab="dashboard" onclick="switchTab('dashboard')">Dashboard</button>
-                    <button type="button" class="header-primary-btn" id="headerPrimaryOrdersBtn" data-primary-tab="orders" onclick="switchTab('orders')">Talepler</button>
-                    <button type="button" class="header-primary-btn" id="headerPrimarySalesLinesBtn" data-primary-tab="sales-lines" onclick="switchTab('sales-lines')">Satış satırları</button>
+            <div class="header-tools app-header-actions">
+                <div class="header-primary-nav app-header-nav">
+                    <button type="button" class="header-primary-btn nav-pill active" id="headerPrimaryDashboardBtn" data-primary-tab="dashboard" onclick="switchTab('dashboard')">Dashboard</button>
+                    <button type="button" class="header-primary-btn nav-pill" id="headerPrimaryOrdersBtn" data-primary-tab="orders" onclick="switchTab('orders')">Talepler</button>
+                    <button type="button" class="header-primary-btn nav-pill" id="headerPrimarySalesLinesBtn" data-primary-tab="sales-lines" onclick="switchTab('sales-lines')">Satış satırları</button>
+                </div>
+                <div class="dev-notification-wrapper" id="devNotificationWrapper" style="display: none;">
+                    <button type="button" class="notification-button" id="devNotificationButton" aria-label="Bildirimler" onclick="toggleDevNotificationsPanel(event)">
+                        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                            <path d="M18 16v-5a6 6 0 0 0-12 0v5l-2 2h20l-2-2Z"></path>
+                            <path d="M10 20a2 2 0 0 0 4 0"></path>
+                        </svg>
+                        <span class="notification-dot" id="devNotificationDot" style="display: none;"></span>
+                    </button>
+                    <div class="notification-panel" id="devNotificationPanel">
+                        <div class="notification-panel-title">Bildirimler</div>
+                        <div class="notification-panel-body" id="devNotificationList">Yeni bildirim yok.</div>
+                    </div>
                 </div>
                 <div class="user-header-info" id="userHeaderInfo"></div>
                 <div class="menu-wrapper" id="menuWrapper">
@@ -1197,6 +1210,6 @@
     <div class="toast-container" id="toastContainer"></div>
 
     <script defer src="/js/orders-renderer-v1.js?v=20260601-sales-lines-sync-guard"></script>
-    <script defer src="/js/app-main-v4.js?v=20260601-bioeksen-login"></script>
+    <script defer src="/js/app-main-v4.js?v=20260602-header-notifications"></script>
 </body>
 </html>

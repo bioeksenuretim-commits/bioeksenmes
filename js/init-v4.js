@@ -1,4 +1,4 @@
-const APP_BUILD_VERSION = '20260602-update-banner-001';
+const APP_BUILD_VERSION = '20260602-header-notifications-001';
 window.APP_BUILD_VERSION = APP_BUILD_VERSION;
 console.log('APP_BUILD v4 aktif', APP_BUILD_VERSION);
 /**
@@ -66,8 +66,104 @@ const ORDERS_REALTIME_FRESH_MS = 45000;
 const SALES_LINES_REALTIME_FRESH_MS = 45000;
 let buildVersionListenerStarted = false;
 let buildVersionRef = null;
+let devNotificationsPanelBound = false;
+const devNotifications = [];
+
+function isDevUser() {
+    const user = window.currentUser || (typeof currentUser !== 'undefined' ? currentUser : null);
+    return String(user?.role || '').trim().toLowerCase() === 'dev';
+}
+
+function escapeNotificationText(value) {
+    return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function addDevNotification(notification = {}) {
+    const id = String(notification.id || '').trim();
+    if (!id || devNotifications.some(item => item.id === id)) return;
+    devNotifications.unshift({
+        id,
+        type: notification.type || 'info',
+        title: notification.title || 'Bildirim',
+        message: notification.message || '',
+        remoteVersion: notification.remoteVersion || '',
+        createdAt: notification.createdAt || new Date().toISOString()
+    });
+    renderDevNotifications();
+}
+
+function closeDevNotificationsPanel() {
+    document.getElementById('devNotificationPanel')?.classList.remove('open');
+}
+
+function toggleDevNotificationsPanel(event) {
+    event?.stopPropagation?.();
+    if (!isDevUser()) return;
+    const panel = document.getElementById('devNotificationPanel');
+    if (!panel) return;
+    panel.classList.toggle('open');
+    renderDevNotifications();
+}
+
+function renderDevNotifications() {
+    const wrapper = document.getElementById('devNotificationWrapper');
+    const list = document.getElementById('devNotificationList');
+    const dot = document.getElementById('devNotificationDot');
+    if (!wrapper || !list || !dot) return;
+
+    const visible = isDevUser();
+    wrapper.style.display = visible ? 'inline-flex' : 'none';
+    if (!visible) {
+        closeDevNotificationsPanel();
+        return;
+    }
+
+    dot.style.display = devNotifications.length > 0 ? '' : 'none';
+    if (devNotifications.length === 0) {
+        list.innerHTML = '<div class="notification-empty">Yeni bildirim yok.</div>';
+        return;
+    }
+
+    list.innerHTML = devNotifications.map(item => `
+        <div class="notification-item" data-notification-id="${escapeNotificationText(item.id)}">
+            <div class="notification-item-title">${escapeNotificationText(item.title)}</div>
+            <div class="notification-item-message">${escapeNotificationText(item.message)}</div>
+            ${item.type === 'update'
+                ? '<button type="button" class="notification-refresh-btn" onclick="window.location.reload()">Yenile</button>'
+                : ''}
+        </div>
+    `).join('');
+
+    if (!devNotificationsPanelBound) {
+        devNotificationsPanelBound = true;
+        document.addEventListener('click', event => {
+            const wrapperEl = document.getElementById('devNotificationWrapper');
+            if (wrapperEl && !wrapperEl.contains(event.target)) closeDevNotificationsPanel();
+        });
+    }
+}
+
+window.isDevUser = isDevUser;
+window.addDevNotification = addDevNotification;
+window.renderDevNotifications = renderDevNotifications;
+window.toggleDevNotificationsPanel = toggleDevNotificationsPanel;
 
 function showUpdateAvailableBanner(remoteVersion) {
+    if (remoteVersion) {
+        addDevNotification({
+            id: `update-${remoteVersion}`,
+            type: 'update',
+            title: 'Yeni güncelleme var',
+            message: 'Lütfen sayfayı yenileyin.',
+            remoteVersion,
+            createdAt: new Date().toISOString()
+        });
+    }
     if (document.getElementById('updateAvailableBanner')) return;
 
     const banner = document.createElement('div');

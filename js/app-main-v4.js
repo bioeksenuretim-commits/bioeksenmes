@@ -36,6 +36,7 @@
             currentUser = user || null;
             window.currentUser = currentUser;
             syncDevEnvironmentState();
+            if (typeof renderDevNotifications === 'function') renderDevNotifications();
         }
 
         function hasDevEnvQuery() {
