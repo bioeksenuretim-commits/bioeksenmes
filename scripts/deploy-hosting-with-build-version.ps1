@@ -44,6 +44,11 @@ $updatedIndexContent = [regex]::Replace(
     "(/js/init-v4\.js\?v=)[^'""]+",
     "`${1}$appBuildVersion"
 )
+$updatedIndexContent = [regex]::Replace(
+    $updatedIndexContent,
+    "(/js/app-main-v4\.js\?v=)[^'""]+",
+    "`${1}$appBuildVersion"
+)
 [System.IO.File]::WriteAllText($indexPath, $updatedIndexContent, $utf8NoBom)
 
 Write-Host "Deploy basliyor. Project: $ProjectId Build: $appBuildVersion"
