@@ -30,6 +30,7 @@
       ".firebaserc",
       "**/.*",
       "**/node_modules/**",
+      "scripts/**",
       "archive-unused-js/**",
       "outputs/**",
       "product_trees_upload.json",
