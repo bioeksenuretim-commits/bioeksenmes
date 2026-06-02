@@ -3,6 +3,13 @@
     ".read": false,
     ".write": false,
 
+    "appMeta": {
+      "buildVersion": {
+        ".read": "auth != null && root.child('users').child(auth.uid).exists() && root.child('users').child(auth.uid).child('disabled').val() !== true && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('isApproved').val() !== false)",
+        ".write": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'"
+      }
+    },
+
     "orders": {
       ".read": "auth != null && root.child('users').child(auth.uid).exists() && root.child('users').child(auth.uid).child('disabled').val() !== true && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('isApproved').val() !== false) && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('department').val() === 'uretim' || root.child('users').child(auth.uid).child('permissions').child('canViewOrders').val() === true)",
       "$orderId": {

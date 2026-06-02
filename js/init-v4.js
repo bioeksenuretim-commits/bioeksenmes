@@ -1,4 +1,6 @@
-console.log('APP_BUILD v4 aktif');
+const APP_BUILD_VERSION = '20260602-update-banner-001';
+window.APP_BUILD_VERSION = APP_BUILD_VERSION;
+console.log('APP_BUILD v4 aktif', APP_BUILD_VERSION);
 /**
  * Initialization Module - Uygulamayi baslat ve modulleri entegre et
  */
@@ -62,6 +64,50 @@ const SALES_LINES_FALLBACK_VISIBLE_MS = 60000;
 const SALES_LINES_FALLBACK_HIDDEN_MS = 300000;
 const ORDERS_REALTIME_FRESH_MS = 45000;
 const SALES_LINES_REALTIME_FRESH_MS = 45000;
+let buildVersionListenerStarted = false;
+let buildVersionRef = null;
+
+function showUpdateAvailableBanner(remoteVersion) {
+    if (document.getElementById('updateAvailableBanner')) return;
+
+    const banner = document.createElement('div');
+    banner.id = 'updateAvailableBanner';
+    banner.className = 'update-available-banner';
+    banner.innerHTML = `
+        <span>Yeni g&uuml;ncelleme var. L&uuml;tfen sayfay&imath; yenileyin.</span>
+        <button type="button" class="update-available-refresh-btn">Yenile</button>
+    `;
+    banner.dataset.remoteVersion = String(remoteVersion || '');
+    banner.querySelector('.update-available-refresh-btn')?.addEventListener('click', () => {
+        window.location.reload();
+    });
+    document.body.appendChild(banner);
+}
+
+function startBuildVersionListener() {
+    if (buildVersionListenerStarted) return;
+    if (typeof firebaseReady === 'undefined' || !firebaseReady) return;
+    if (typeof firebase === 'undefined' || !firebase.database) return;
+
+    const dbPath = typeof getFirebaseDbPath === 'function'
+        ? getFirebaseDbPath('appMeta/buildVersion')
+        : 'appMeta/buildVersion';
+
+    try {
+        buildVersionListenerStarted = true;
+        buildVersionRef = firebase.database().ref(dbPath);
+        buildVersionRef.on('value', snapshot => {
+            const remoteVersion = String(snapshot.val() || '').trim();
+            if (!remoteVersion) return;
+            if (remoteVersion !== APP_BUILD_VERSION) {
+                showUpdateAvailableBanner(remoteVersion);
+            }
+        }, () => {});
+    } catch (_) {
+        buildVersionListenerStarted = false;
+        buildVersionRef = null;
+    }
+}
 
 function hasOrdersAccess() {
     return typeof canViewOrders !== 'function' || canViewOrders();
@@ -181,6 +227,7 @@ async function initializeApp() {
             if (!firebaseSync.ordersRef) {
                 firebaseSync.init();
             }
+            startBuildVersionListener();
 
             if (hasOrdersAccess() && typeof dataMigration !== 'undefined') {
                 const localOrders = await storage.getAll();

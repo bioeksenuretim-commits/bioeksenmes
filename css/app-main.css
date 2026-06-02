@@ -48,6 +48,50 @@
             -webkit-font-smoothing: antialiased;
         }
 
+        .update-available-banner {
+            position: fixed;
+            left: 50%;
+            bottom: 20px;
+            z-index: 3000;
+            transform: translateX(-50%);
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            max-width: min(92vw, 520px);
+            padding: 10px 12px 10px 14px;
+            border: 1px solid #bfdbfe;
+            border-radius: var(--radius-lg);
+            background: #eff6ff;
+            color: #1e3a8a;
+            box-shadow: var(--shadow-lg);
+            font-size: 0.86rem;
+            font-weight: 600;
+        }
+
+        .update-available-refresh-btn {
+            border: 0;
+            border-radius: var(--radius-md);
+            padding: 7px 10px;
+            background: var(--accent-primary);
+            color: #fff;
+            font: inherit;
+            font-size: 0.82rem;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .update-available-refresh-btn:hover {
+            background: var(--accent-secondary);
+        }
+
+        @media (max-width: 640px) {
+            .update-available-banner {
+                width: calc(100vw - 24px);
+                justify-content: space-between;
+                bottom: 12px;
+            }
+        }
+
         .bg-animation { display: none; }
 
         /* Header */
