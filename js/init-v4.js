@@ -1,4 +1,4 @@
-const APP_BUILD_VERSION = '20260602-manual-notifications-001';
+const APP_BUILD_VERSION = '20260602-124449';
 window.APP_BUILD_VERSION = APP_BUILD_VERSION;
 console.log('APP_BUILD v4 aktif', APP_BUILD_VERSION);
 /**
