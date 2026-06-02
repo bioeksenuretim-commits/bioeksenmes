@@ -74,6 +74,12 @@ const CUSTOMER_MARKET_OPTIONS = ['YURT \u0130\u00c7\u0130', 'YURT DI\u015eI'];
 const ACTION_COLUMN = 'Talep Geç';
 const EDITED_LIST_EXCLUDED_COLUMNS = [ACTION_COLUMN, 'Ürün Durumu', 'Lot No', 'Üretimin Notları'];
 const EXTRACTION_KIT_PRODUCTS = [
+    ['ZFNAE01', 'Hızlı Nükleik Asit Ekstraksiyon Kiti-20 Test'],
+    ['ZFNAE01R', 'Hızlı Nükleik Asit Ekstraksiyon Kiti-20 Test -RUO'],
+    ['ZFNAE02', 'Hızlı Nükleik Asit Ekstraksiyon Kiti-32 Test'],
+    ['ZFNAE02R', 'Hızlı Nükleik Asit Ekstraksiyon Kiti-32 Test -RUO'],
+    ['SG-NA-01', 'Sigmoida Lab NA Extraction Kit'],
+    ['SG-NA-02', 'Sigmoida Lab NA Extraction Kit'],
     ['YM-P-01686', 'Elution Buffer-125 mL'],
     ['YM-P-01510', 'Wash Buffer-15 mL'],
     ['YM-P-01685', 'Wash Buffer-125 mL'],
@@ -84,6 +90,7 @@ const EXTRACTION_KIT_PRODUCTS = [
     ['YM-P-01534', 'MGW-8 mL']
 ];
 const EXTRACTION_KIT_PRODUCT_NOS = new Set(EXTRACTION_KIT_PRODUCTS.map(([productNo]) => productNo.toLocaleUpperCase('tr')));
+const EXTRACTION_KIT_DESCRIPTIONS = new Set(EXTRACTION_KIT_PRODUCTS.map(([, description]) => String(description || '').trim().replace(/\s+/g, ' ').toLocaleUpperCase('tr')).filter(Boolean));
 const DEFAULT_SALES_LINE_COLUMN_ORDER = [ACTION_COLUMN, 'Hafta', 'Temsilci', 'Sipariş Tarihi', 'Belge Açıklaması', 'Belge No', 'Müşteri',
                    'No', 'Açıklama', 'Konum Kodu', 'Miktar', 'Ölçü Birimi',
                    'Teslim Tarihi', 'Lot No', 'Satışın Notları', 'Üretimin Notları', 'Ürün Durumu'];

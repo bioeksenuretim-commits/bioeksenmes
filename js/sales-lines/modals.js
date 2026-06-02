@@ -182,8 +182,15 @@ function normalizeExtractionProductNo(value) {
     return String(value || '').trim().toLocaleUpperCase('tr');
 }
 
+function normalizeExtractionDescription(value) {
+    return String(value || '').trim().replace(/\s+/g, ' ').toLocaleUpperCase('tr');
+}
+
 function isExtractionKitOrder(order) {
-    return EXTRACTION_KIT_PRODUCT_NOS.has(normalizeExtractionProductNo(order?.['No']));
+    const productNo = normalizeExtractionProductNo(order?.['No']);
+    const description = normalizeExtractionDescription(order?.['Açıklama']);
+    return EXTRACTION_KIT_PRODUCT_NOS.has(productNo)
+        || EXTRACTION_KIT_DESCRIPTIONS.has(description);
 }
 
 function getExtractionKitOrders() {
