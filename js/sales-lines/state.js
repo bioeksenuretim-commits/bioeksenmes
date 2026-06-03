@@ -961,8 +961,7 @@ function buildIncomingSalesLinesOrdersForLoad(payload = {}) {
     const incomingOrders = Array.isArray(payload.allOrders)
         ? payload.allOrders.map(deserializeSalesLineOrder)
         : [];
-    const syncMode = String(payload?.meta?.syncMode || '').trim();
-    if (syncMode !== 'row-patch') return incomingOrders;
+    if (!isSalesLinesRowPatchPayload(payload)) return incomingOrders;
 
     const changedIds = new Set((Array.isArray(payload?.meta?.changedRowIds) ? payload.meta.changedRowIds : [])
         .map(id => String(id || '').trim())
@@ -994,6 +993,94 @@ function buildIncomingSalesLinesOrdersForLoad(payload = {}) {
     });
 
     return result;
+}
+
+function isSalesLinesRowPatchPayload(payload) {
+    return String(payload?.meta?.syncMode || '').trim() === 'row-patch';
+}
+
+function isPartialSalesLinesRowPatchPayload(payload) {
+    if (!isSalesLinesRowPatchPayload(payload)) return false;
+    const payloadRows = Array.isArray(payload?.allOrders) ? payload.allOrders.length : 0;
+    const expectedRows = getSalesLinesPayloadRowCount(payload);
+    return expectedRows > 0 && payloadRows < expectedRows;
+}
+
+function buildFullSalesLinesPayloadFromOrders(orders = [], sourcePayload = {}, meta = {}) {
+    const sourceMeta = sourcePayload?.meta || {};
+    const payloadEditedLog = isSalesLinesRowPatchPayload(sourcePayload)
+        ? mergeEditedLogForIncomingSalesLines(sourcePayload, sourcePayload?.editedLog || {})
+        : (sourcePayload?.editedLog || editedLog);
+    return {
+        version: sourcePayload?.version || 1,
+        savedAt: sourcePayload?.savedAt || new Date().toISOString(),
+        meta: {
+            ...sourceMeta,
+            ...meta,
+            syncMode: meta.syncMode || 'full',
+            changedRowIds: [],
+            deletedRowIds: [],
+            rowBaseMeta: {},
+            changedColumnsByRow: {},
+            rowCount: Array.isArray(orders) ? orders.length : 0
+        },
+        todayOutputs: sourcePayload?.todayOutputs || {
+            dateKey: getSalesLinesTodayOutputDateKey(),
+            rowIds: Array.from(todayOutputOrderIds || [])
+        },
+        editedLog: payloadEditedLog,
+        columnOrder: Array.isArray(sourcePayload?.columnOrder) ? sourcePayload.columnOrder : [],
+        allOrders: Array.isArray(orders)
+            ? orders.map(order => serializeSalesLineOrder(order))
+            : []
+    };
+}
+
+function buildFullPayloadForLocalSalesLinesPersist(payload) {
+    if (!isSalesLinesRowPatchPayload(payload)) return payload;
+
+    if (!Array.isArray(allOrders) || allOrders.length === 0) {
+        console.warn('Row-patch payload full local cache uzerine yazilmadi; full payload bekleniyor.');
+        return null;
+    }
+
+    const incomingOrders = buildIncomingSalesLinesOrdersForLoad(payload);
+    const mergedOrders = mergeIncomingSalesLinesWithPendingLocalRows(incomingOrders);
+    return buildFullSalesLinesPayloadFromOrders(mergedOrders, payload, {
+        source: payload?.meta?.source || 'row-patch-local-merge',
+        syncMode: 'cache-backup'
+    });
+}
+
+function buildLegacyFullStatePayloadForCloudSave(payload) {
+    if (!isSalesLinesRowPatchPayload(payload)) return payload;
+
+    console.warn('Row-patch payload legacy full-state path yazilmadi; full backup kullanilacak.');
+    const fullBackupPayload = typeof window.getSalesLinesBackupPayload === 'function'
+        ? window.getSalesLinesBackupPayload()
+        : null;
+    const fullBackupRows = Array.isArray(fullBackupPayload?.allOrders) ? fullBackupPayload.allOrders.length : 0;
+    const expectedRows = getSalesLinesPayloadRowCount(payload);
+
+    if (fullBackupPayload && fullBackupRows > 0 && (!expectedRows || fullBackupRows >= expectedRows)) {
+        return {
+            ...fullBackupPayload,
+            savedAt: payload?.savedAt || fullBackupPayload.savedAt || new Date().toISOString(),
+            meta: {
+                ...(fullBackupPayload.meta || {}),
+                source: payload?.meta?.source || fullBackupPayload.meta?.source || 'legacy-full-backup',
+                syncMode: 'full',
+                changedRowIds: [],
+                deletedRowIds: [],
+                rowBaseMeta: {},
+                changedColumnsByRow: {},
+                rowCount: fullBackupRows
+            }
+        };
+    }
+
+    console.warn('Row-patch payload legacy full-state path icin full backup bulunamadigi icin kuyruga birakildi.');
+    return null;
 }
 
 function mergeEditedLogForIncomingSalesLines(payload = {}, normalizedEditedLog = {}) {
@@ -1732,22 +1819,25 @@ function isStorageQuotaError(error) {
 }
 
 function persistSalesLinesPayloadLocally(payload) {
-    lastPersistedSalesLinesPayloadTime = getSalesLinesPayloadTime(payload);
-    lastPersistedSalesLinesPayloadSignature = getSalesLinesPayloadSignature(payload);
-    lastPersistedSalesLinesPayloadRows = getSalesLinesPayloadRowCount(payload);
+    const payloadForPersist = buildFullPayloadForLocalSalesLinesPersist(payload);
+    if (!payloadForPersist) return false;
 
-    saveSalesLinesPayloadToIndexedDb(payload).catch(error => {
+    lastPersistedSalesLinesPayloadTime = getSalesLinesPayloadTime(payloadForPersist);
+    lastPersistedSalesLinesPayloadSignature = getSalesLinesPayloadSignature(payloadForPersist);
+    lastPersistedSalesLinesPayloadRows = getSalesLinesPayloadRowCount(payloadForPersist);
+
+    saveSalesLinesPayloadToIndexedDb(payloadForPersist).catch(error => {
         console.warn('Sales lines IndexedDB cache kaydi basarisiz:', error);
     });
 
     const cacheMarker = {
-        version: payload?.version || 1,
-        savedAt: payload?.savedAt || new Date().toISOString(),
+        version: payloadForPersist?.version || 1,
+        savedAt: payloadForPersist?.savedAt || new Date().toISOString(),
         meta: {
-            ...(payload?.meta || {}),
-            rowCount: Array.isArray(payload?.allOrders) ? payload.allOrders.length : 0
+            ...(payloadForPersist?.meta || {}),
+            rowCount: Array.isArray(payloadForPersist?.allOrders) ? payloadForPersist.allOrders.length : 0
         },
-        columnOrder: Array.isArray(payload?.columnOrder) ? payload.columnOrder : [],
+        columnOrder: Array.isArray(payloadForPersist?.columnOrder) ? payloadForPersist.columnOrder : [],
         storage: 'indexeddb'
     };
 
@@ -2352,10 +2442,13 @@ async function flushSalesLinesCloudSave(payload, options = {}) {
     }
 
     if (cloudSaveAttempts.length === 0 && !isEmbeddedSalesLinesFrame()) {
+        const legacyPayload = buildLegacyFullStatePayloadForCloudSave(payload);
+        if (!legacyPayload) return false;
+
         const cloudState = {
-            version: payload.version || 1,
-            savedAt: payload.savedAt || new Date().toISOString(),
-            payloadJson: JSON.stringify(payload)
+            version: legacyPayload.version || 1,
+            savedAt: legacyPayload.savedAt || new Date().toISOString(),
+            payloadJson: JSON.stringify(legacyPayload)
         };
 
         cloudSaveAttempts.push(fetch(SALES_LINES_CLOUD_URL, {
@@ -2654,6 +2747,11 @@ function loadSalesLinesStateFromPayload(payload, options = {}) {
             return false;
         }
 
+        if (isPartialSalesLinesRowPatchPayload(payload) && (!Array.isArray(allOrders) || allOrders.length === 0)) {
+            console.warn('Eksik row-patch payload bos tabloya uygulanmadi; full payload veya IndexedDB backup bekleniyor.');
+            return false;
+        }
+
         const incomingSignature = getSalesLinesPayloadSignature(payload);
         const preserveView = !!(options.preserveView || options.silent || options.skipParentPost);
         const previousSort = { ...currentSort };
@@ -2670,6 +2768,9 @@ function loadSalesLinesStateFromPayload(payload, options = {}) {
                 syncMode: String(payload?.meta?.syncMode || '').trim() === 'row-patch' ? 'full' : payload?.meta?.syncMode,
                 rowCount: mergedIncomingOrders.length
             },
+            editedLog: isSalesLinesRowPatchPayload(payload)
+                ? mergeEditedLogForIncomingSalesLines(payload, payload.editedLog || {})
+                : payload.editedLog,
             allOrders: mergedIncomingOrders.map(order => serializeSalesLineOrder(order))
         };
         if (!options.skipLocalPersist) {
