@@ -908,7 +908,7 @@
             background: var(--bg);
             border-radius: var(--radius);
             box-shadow: 0 4px 16px rgba(0,0,0,0.12);
-            z-index: 50;
+            z-index: 150;
             min-width: 200px;
             max-width: 280px;
             max-height: 320px;

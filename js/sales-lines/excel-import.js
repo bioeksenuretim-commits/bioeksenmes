@@ -136,6 +136,9 @@ function processWorkbook(workbook, weekNum) {
             });
 
             order['Hafta'] = normalizedWeek || String(weekNum);
+            order._source = 'excel';
+            order._externalKey = buildSalesLineExternalKey(order);
+            order._excelKey = order._externalKey;
             order._id = buildStableSalesLineId(order, idx);
             order._siparisTarihi = parseDate(order['Sipariş Tarihi'] || '');
             order._teslimTarihi = parseDate(order['Teslim Tarihi'] || '');

@@ -6,6 +6,36 @@ function getSalesLineDisplayValue(order, col) {
     return String(order[col] || '');
 }
 
+const SALES_LINE_MANUAL_FIELD_COLUMNS = new Set([
+    'Miktar',
+    'Ölçü Birimi',
+    'No',
+    'Açıklama',
+    'Belge No',
+    'Sipariş Tarihi',
+    'Teslim Tarihi',
+    'Ürün Durumu',
+    'Satışın Notları',
+    'Üretimin Notları'
+]);
+
+function markSalesLineManualField(order, col) {
+    if (!order || !SALES_LINE_MANUAL_FIELD_COLUMNS.has(col)) return false;
+    const fields = Array.isArray(order._manualFields) ? order._manualFields : [];
+    if (fields.includes(col)) {
+        order._manualFields = fields;
+        return false;
+    }
+    fields.push(col);
+    order._manualFields = fields;
+    return true;
+}
+
+function isSalesLineManualField(order, col) {
+    return Array.isArray(order?._manualFields) && order._manualFields.includes(col);
+}
+
+
 function renderSalesOrderNoDisplay(order, options = {}) {
     const current = String(order?.['Belge No'] || '').trim() || '-';
     const previousNos = normalizePreviousSalesOrderNos(order?._previousBelgeNos);
@@ -34,6 +64,8 @@ function setSalesLineOrderValue(order, col, value, baseMeta = null) {
     if (oldComparable === newDisplay.trim()) return false;
 
     recordSalesLineChange(order._id, col, oldDisplay, newDisplay || (col === CUSTOMER_MARKET_COLUMN ? '-' : ''));
+    const changedColumns = [col];
+    if (markSalesLineManualField(order, col)) changedColumns.push('_manualFields');
     if (col === 'Belge No') {
         updatePreviousSalesOrderNos(order, oldDisplay, newDisplay);
         todayOutputOrderNoIndexCache = null;
@@ -43,22 +75,35 @@ function setSalesLineOrderValue(order, col, value, baseMeta = null) {
     if (col === 'No') {
         const oldDescription = String(order['Açıklama'] || '');
         const oldUnit = String(order['Ölçü Birimi'] || '');
-        applyProductInfoToSalesLine(order, newDisplay);
+        applyProductInfoToSalesLine(order, newDisplay, {
+            preserveManualFields: true,
+            preserveDescription: isSalesLineManualField(order, 'A\u00e7\u0131klama'),
+            preserveUnit: isSalesLineManualField(order, '\u00d6l\u00e7\u00fc Birimi')
+        });
         if (oldDescription !== String(order['Açıklama'] || '')) {
             recordSalesLineChange(order._id, 'Açıklama', oldDescription, String(order['Açıklama'] || ''));
+            changedColumns.push('Açıklama');
         }
         if (oldUnit !== String(order['Ölçü Birimi'] || '')) {
             recordSalesLineChange(order._id, 'Ölçü Birimi', oldUnit, String(order['Ölçü Birimi'] || ''));
+            changedColumns.push('Ölçü Birimi');
         }
     }
     if (col === 'Miktar') {
         delete order._partialOutputQty;
         delete order._partialOutputOriginalQty;
+        changedColumns.push('_partialOutputQty', '_partialOutputOriginalQty');
     }
-    if (col === 'Sipariş Tarihi') order._siparisTarihi = parseDate(newDisplay);
-    if (col === 'Teslim Tarihi') order._teslimTarihi = parseDate(newDisplay);
+    if (col === 'Sipariş Tarihi') {
+        order._siparisTarihi = parseDate(newDisplay);
+        changedColumns.push('_siparisTarihi');
+    }
+    if (col === 'Teslim Tarihi') {
+        order._teslimTarihi = parseDate(newDisplay);
+        changedColumns.push('_teslimTarihi');
+    }
     refreshSalesLineSearchIndex(order);
-    queueSalesLineRowChange(order, rowBaseMeta, col);
+    queueSalesLineRowChange(order, rowBaseMeta, changedColumns);
     return true;
 }
 
@@ -242,7 +287,6 @@ function hasActiveTableQuery() {
 }
 
 function canPatchRenderedSalesLineRow(col) {
-    if (col === 'Ürün Durumu') return false;
     return !hasActiveTableQuery();
 }
 
@@ -503,7 +547,7 @@ function finishEdit(input) {
         const cancelId = td.dataset.id;
         td.classList.remove('editing');
         if (!patchRenderedSalesLineRow(cancelId)) renderTable();
-        setTimeout(flushQueuedSalesLinesAfterEdit, 0);
+        scheduleFlushQueuedSalesLinesAfterEdit();
         return;
     }
     const id = td.dataset.id;
@@ -530,7 +574,7 @@ function finishEdit(input) {
     } else {
         if (!patchRenderedSalesLineRow(id)) renderTable();
     }
-    setTimeout(flushQueuedSalesLinesAfterEdit, 0);
+    scheduleFlushQueuedSalesLinesAfterEdit();
 }
 
 async function setCellValue(id, col, value) {
@@ -544,7 +588,7 @@ async function setCellValue(id, col, value) {
             partialOutputQty = await promptPartialOutputQuantity(id);
         if (partialOutputQty === null) {
             if (!patchRenderedSalesLineRow(id)) applyFilters({ preservePage: true, preserveScroll: true });
-            setTimeout(flushQueuedSalesLinesAfterEdit, 0);
+            scheduleFlushQueuedSalesLinesAfterEdit();
             return;
         }
         } else {
@@ -566,7 +610,7 @@ async function setCellValue(id, col, value) {
         scheduleDashboardRender();
         showToast(changedCount > 1 ? `${changedCount} satır güncellendi` : 'Durum güncellendi', 'success');
     }
-    setTimeout(flushQueuedSalesLinesAfterEdit, 0);
+    scheduleFlushQueuedSalesLinesAfterEdit();
 }
 
 // ===== COLUMN DRAG & DROP =====
@@ -946,6 +990,7 @@ function resetAllChanges() {
     pendingDeletedSalesLineRowIds = new Set();
     pendingSalesLineRowBaseMeta = {};
     pendingSalesLineChangedColumns = {};
+    pendingLocalSalesLineEdits = new Map();
     serializedSalesLineOrderCache = new Map();
     columnOrder = accountColumnOrderLoaded ? normalizePersonalizationColumnOrder(columnOrder) : [...DEFAULT_SALES_LINE_COLUMN_ORDER];
     localStorage.removeItem(SALES_LINES_STORAGE_KEY);

@@ -671,7 +671,10 @@ function refreshSalesLineProductInfoFromLookup(options = {}) {
         const match = getProductTreeLookupItem(catalogNo);
         if (!match) return;
 
-        const baseMeta = getSalesLineRowSyncMeta(order);
+        const baseMeta = {
+            ...getSalesLineRowSyncMeta(order),
+            rowSnapshot: cloneSalesLinePlainValue(order)
+        };
         let changed = false;
 
         const currentDescription = String(order['Açıklama'] || '');
@@ -689,7 +692,7 @@ function refreshSalesLineProductInfoFromLookup(options = {}) {
 
         if (!changed) return;
         refreshSalesLineSearchIndex(order);
-        queueSalesLineRowChange(order, baseMeta);
+        queueSalesLineRowChange(order, baseMeta, ['Açıklama', 'Ölçü Birimi']);
         changedCount += 1;
     });
 
@@ -702,25 +705,33 @@ function refreshSalesLineProductInfoFromLookup(options = {}) {
     return changedCount;
 }
 
-function applyProductInfoToSalesLine(order, value) {
+function applyProductInfoToSalesLine(order, value, options = {}) {
     const lookupValue = String(value || '').trim().toLocaleUpperCase('tr');
     if (!order || !lookupValue) return false;
 
     const match = getProductTreeLookupItem(lookupValue);
-    const oldDescription = String(order['Açıklama'] || '');
-    const oldUnit = String(order['Ölçü Birimi'] || '');
+    const oldDescription = String(order['A\u00e7\u0131klama'] || '');
+    const oldUnit = String(order['\u00d6l\u00e7\u00fc Birimi'] || '');
+    const manualFields = Array.isArray(order._manualFields) ? order._manualFields : [];
+    const preserveDescription = !!(options.preserveDescription || (options.preserveManualFields && manualFields.includes('A\u00e7\u0131klama')));
+    const preserveUnit = !!(options.preserveUnit || (options.preserveManualFields && manualFields.includes('\u00d6l\u00e7\u00fc Birimi')));
 
     if (!match) {
-        order['Açıklama'] = '';
-        return oldDescription !== '';
+        if (!preserveDescription && !oldDescription) order['A\u00e7\u0131klama'] = '';
+        return oldDescription !== String(order['A\u00e7\u0131klama'] || '');
     }
 
-    order['Açıklama'] = match.description || '';
-    if (match.unit) {
-        order['Ölçü Birimi'] = match.unit;
+    const nextDescription = String(match.description || '');
+    const nextUnit = String(match.unit || '');
+    if (!preserveDescription && (!oldDescription || !options.preserveManualFields)) {
+        order['A\u00e7\u0131klama'] = nextDescription;
     }
-    return oldDescription !== String(order['Açıklama'] || '') || oldUnit !== String(order['Ölçü Birimi'] || '');
+    if (nextUnit && !preserveUnit && (!oldUnit || !options.preserveManualFields)) {
+        order['\u00d6l\u00e7\u00fc Birimi'] = nextUnit;
+    }
+    return oldDescription !== String(order['A\u00e7\u0131klama'] || '') || oldUnit !== String(order['\u00d6l\u00e7\u00fc Birimi'] || '');
 }
+
 
 const MANUAL_SALES_LINE_STEPS = [
     { key: 'itemCount', title: 'Manuel sipariş', prompt: 'Kaç kalem sipariş gireceksiniz?', type: 'number', placeholder: 'Örn: 5' },
@@ -815,6 +826,8 @@ function createManualSalesLineOrders(answers) {
     for (let i = 0; i < count; i += 1) {
         const order = {
             _manual: true,
+            _manualEntry: true,
+            _source: 'manual',
             _linkedRequestIds: [],
             _siparisTarihi: parseDate(answers.requestDate),
             _teslimTarihi: parseDate(answers.deliveryDate),
@@ -837,10 +850,10 @@ function createManualSalesLineOrders(answers) {
             'Ürün Durumu': '',
             [CUSTOMER_MARKET_COLUMN]: answers.customerMarket || ''
         };
-        const id = `sl_manual_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 7)}`;
+        const id = createSalesLinePermanentId('manual_sl');
         order._id = id;
         refreshSalesLineSearchIndex(order);
-        queueSalesLineRowChange(order);
+        queueSalesLineRowChange(order, null, Object.keys(order).filter(key => !String(key).startsWith('_')));
         allOrders.unshift(order);
         createdIds.push(id);
         recordSalesLineChange(id, ACTION_COLUMN, '', `Manuel sipariş eklendi ${now.toLocaleString('tr-TR')}`);

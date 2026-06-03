@@ -104,6 +104,7 @@ let pendingChangedSalesLineRowIds = new Set();
 let pendingDeletedSalesLineRowIds = new Set();
 let pendingSalesLineRowBaseMeta = {};
 let pendingSalesLineChangedColumns = {};
+let pendingLocalSalesLineEdits = new Map();
 let salesLineConflictQueue = [];
 let serializedSalesLineOrderCache = new Map();
 const SALES_LINES_COLUMN_WIDTHS_KEY = 'sales_lines_column_widths_v1';
@@ -372,28 +373,25 @@ function isGeneratedSalesLineId(id) {
     return !value || /^row_\d+$/i.test(value);
 }
 
+function createSalesLinePermanentId(prefix = 'sl') {
+    const safePrefix = String(prefix || 'sl').replace(/[^a-z0-9_]/gi, '') || 'sl';
+    const random = Math.random().toString(36).slice(2, 9);
+    return `${safePrefix}_${Date.now()}_${random}`;
+}
+
+function buildSalesLineExternalKey(row) {
+    const belgeNo = getSalesLineIdentityField(row, ['Belge No', 'BELGE NO', 'Document No', 'Order No']);
+    const lineNo = getSalesLineIdentityField(row, ['Sat\u0131r No', 'Satir No', 'Line No', 'S\u0131ra No', 'Sira No', 'S\u0131ra', 'Sira']);
+    if (belgeNo && lineNo) {
+        return [belgeNo, lineNo].map(normalizeSalesLineIdentityValue).join('|');
+    }
+    return '';
+}
+
 function buildStableSalesLineId(row, index = 0) {
     const existingId = String(row?._id || row?.id || '').trim();
     if (existingId && !isGeneratedSalesLineId(existingId)) return existingId;
-
-    const belgeNo = getSalesLineIdentityField(row, ['Belge No', 'BELGE NO', 'Document No', 'Order No']);
-    const lineNo = getSalesLineIdentityField(row, ['Satır No', 'Satir No', 'Line No', 'Sıra No', 'Sira No', 'Sıra', 'Sira']);
-    const itemNo = getSalesLineIdentityField(row, ['No', 'NO', 'Katalog No', 'Madde No', 'Stok Kodu', 'Ürün No', 'Urun No']);
-    const quantity = getSalesLineIdentityField(row, ['Miktar', 'MIKTAR', 'Quantity']);
-    const date = getSalesLineIdentityField(row, ['Sevk Tarihi', 'Termin Tarihi', 'Teslim Tarihi', 'Talep edilen teslim tarihi']);
-    let raw = '';
-
-    if (belgeNo && lineNo) {
-        raw = [belgeNo, lineNo].map(normalizeSalesLineIdentityValue).join('|');
-    } else if (belgeNo && itemNo && (quantity || date)) {
-        raw = [belgeNo, itemNo, quantity, date].map(normalizeSalesLineIdentityValue).join('|');
-    } else if (itemNo && (quantity || date)) {
-        raw = [itemNo, quantity, date].map(normalizeSalesLineIdentityValue).join('|');
-    }
-
-    if (raw.replace(/\|/g, '')) return `sl_${simpleSalesLineHash(raw)}`;
-    if (existingId) return `sl_${simpleSalesLineHash(`existing|${existingId}`)}`;
-    return `sl_manual_${Date.now()}_${index}`;
+    return createSalesLinePermanentId(row?._manualEntry || row?._manual || row?._source === 'manual' ? 'manual_sl' : 'sl');
 }
 
 function normalizeSalesLineIdentities(orders, editedLogMap = {}) {
@@ -401,12 +399,21 @@ function normalizeSalesLineIdentities(orders, editedLogMap = {}) {
     const idMap = new Map();
     const normalizedOrders = (Array.isArray(orders) ? orders : []).map((order, index) => {
         const previousId = String(order?._id || order?.id || '').trim();
-        const baseId = buildStableSalesLineId(order, index);
+        const baseId = previousId && !isGeneratedSalesLineId(previousId)
+            ? previousId
+            : buildStableSalesLineId(order, index);
         const count = seen.get(baseId) || 0;
         seen.set(baseId, count + 1);
-        const nextId = count === 0 ? baseId : `${baseId}_${count + 1}`;
+        const nextId = count === 0 ? baseId : createSalesLinePermanentId(order?._manualEntry || order?._manual || order?._source === 'manual' ? 'manual_sl' : 'sl');
         if (previousId && previousId !== nextId) idMap.set(previousId, nextId);
-        return { ...(order || {}), _id: nextId };
+        const normalizedOrder = { ...(order || {}), _id: nextId };
+        const externalKey = String(normalizedOrder._externalKey || normalizedOrder._excelKey || '').trim() || buildSalesLineExternalKey(normalizedOrder);
+        if (externalKey && normalizedOrder._source !== 'manual') {
+            normalizedOrder._source = normalizedOrder._source || 'excel';
+            normalizedOrder._externalKey = externalKey;
+            normalizedOrder._excelKey = normalizedOrder._excelKey || externalKey;
+        }
+        return normalizedOrder;
     });
 
     const normalizedEditedLog = {};
@@ -852,6 +859,16 @@ function queueSalesLinesRemotePayload(payload, options = {}) {
     queuedSalesLinesRemoteOptions = { ...options, forceDuringEdit: true };
 }
 
+let queuedSalesLinesFlushTimer = null;
+
+function scheduleFlushQueuedSalesLinesAfterEdit(delay = 650) {
+    if (queuedSalesLinesFlushTimer) clearTimeout(queuedSalesLinesFlushTimer);
+    queuedSalesLinesFlushTimer = setTimeout(() => {
+        queuedSalesLinesFlushTimer = null;
+        flushQueuedSalesLinesAfterEdit();
+    }, delay);
+}
+
 function flushQueuedSalesLinesAfterEdit() {
     if (isSalesLineInlineEditActive()) return;
 
@@ -868,6 +885,124 @@ function flushQueuedSalesLinesAfterEdit() {
         queuedSalesLinesTableRender = false;
         renderTable();
     }
+}
+
+function rememberPendingLocalSalesLineEdit(id, order, changedCols = []) {
+    const rowId = String(id || '').trim();
+    if (!rowId || !order) return;
+    const columns = normalizeSalesLineColumnList(changedCols);
+    if (columns.length === 0) return;
+    const current = pendingLocalSalesLineEdits.get(rowId) || { updatedAt: 0, columns: {} };
+    const nextColumns = { ...(current.columns || {}) };
+    columns.forEach(col => {
+        if (Object.prototype.hasOwnProperty.call(order, col)) {
+            nextColumns[col] = cloneSalesLinePlainValue(order[col]);
+        } else {
+            nextColumns[col] = undefined;
+        }
+    });
+    pendingLocalSalesLineEdits.set(rowId, {
+        updatedAt: Date.now(),
+        columns: nextColumns
+    });
+}
+
+function applyPendingLocalSalesLineEditSnapshot(order) {
+    const id = String(order?._id || order?.id || '').trim();
+    const pending = pendingLocalSalesLineEdits.get(id);
+    if (!pending || !pending.columns) return order;
+    const next = { ...(order || {}) };
+    Object.entries(pending.columns).forEach(([col, value]) => {
+        if (value === undefined) delete next[col];
+        else next[col] = cloneSalesLinePlainValue(value);
+    });
+    return next;
+}
+
+function mergeIncomingSalesLinesWithPendingLocalRows(incomingOrders = []) {
+    if (!pendingChangedSalesLineRowIds.size && !pendingDeletedSalesLineRowIds.size && pendingLocalSalesLineEdits.size === 0) {
+        return incomingOrders;
+    }
+    const currentLocalById = new Map((Array.isArray(allOrders) ? allOrders : [])
+        .map(order => [String(order?._id || order?.id || '').trim(), order])
+        .filter(([id]) => id));
+    const seen = new Set();
+    const result = [];
+
+    (Array.isArray(incomingOrders) ? incomingOrders : []).forEach(order => {
+        const id = String(order?._id || order?.id || '').trim();
+        if (!id) {
+            result.push(order);
+            return;
+        }
+        if (pendingDeletedSalesLineRowIds.has(id)) {
+            seen.add(id);
+            return;
+        }
+        if (pendingChangedSalesLineRowIds.has(id)) {
+            const localOrder = currentLocalById.get(id);
+            result.push(localOrder ? applyPendingLocalSalesLineEditSnapshot(localOrder) : applyPendingLocalSalesLineEditSnapshot(order));
+        } else {
+            result.push(applyPendingLocalSalesLineEditSnapshot(order));
+        }
+        seen.add(id);
+    });
+
+    pendingChangedSalesLineRowIds.forEach(id => {
+        if (seen.has(id) || pendingDeletedSalesLineRowIds.has(id)) return;
+        const localOrder = currentLocalById.get(id);
+        if (localOrder) result.push(applyPendingLocalSalesLineEditSnapshot(localOrder));
+    });
+
+    return result;
+}
+
+function buildIncomingSalesLinesOrdersForLoad(payload = {}) {
+    const incomingOrders = Array.isArray(payload.allOrders)
+        ? payload.allOrders.map(deserializeSalesLineOrder)
+        : [];
+    const syncMode = String(payload?.meta?.syncMode || '').trim();
+    if (syncMode !== 'row-patch') return incomingOrders;
+
+    const changedIds = new Set((Array.isArray(payload?.meta?.changedRowIds) ? payload.meta.changedRowIds : [])
+        .map(id => String(id || '').trim())
+        .filter(Boolean));
+    const deletedIds = new Set((Array.isArray(payload?.meta?.deletedRowIds) ? payload.meta.deletedRowIds : [])
+        .map(id => String(id || '').trim())
+        .filter(Boolean));
+    const incomingById = new Map(incomingOrders
+        .map(order => [String(order?._id || order?.id || '').trim(), order])
+        .filter(([id]) => id));
+    const seen = new Set();
+    const result = [];
+
+    (Array.isArray(allOrders) ? allOrders : []).forEach(order => {
+        const id = String(order?._id || order?.id || '').trim();
+        if (!id || deletedIds.has(id)) return;
+        if (incomingById.has(id)) {
+            result.push(incomingById.get(id));
+            seen.add(id);
+        } else {
+            result.push(order);
+        }
+    });
+
+    incomingById.forEach((order, id) => {
+        if (seen.has(id) || deletedIds.has(id)) return;
+        if (changedIds.size > 0 && !changedIds.has(id)) return;
+        result.push(order);
+    });
+
+    return result;
+}
+
+function mergeEditedLogForIncomingSalesLines(payload = {}, normalizedEditedLog = {}) {
+    const syncMode = String(payload?.meta?.syncMode || '').trim();
+    if (syncMode !== 'row-patch') return normalizedEditedLog;
+    return {
+        ...(editedLog || {}),
+        ...(normalizedEditedLog || {})
+    };
 }
 
 function openColumnPersonalizationModal() {
@@ -1060,6 +1195,10 @@ async function passSalesLineRequest(salesOrderId) {
 
     const salesOrder = allOrders.find(order => order._id === salesOrderId);
     if (!salesOrder) return;
+    const baseMeta = {
+        ...getSalesLineRowSyncMeta(salesOrder),
+        rowSnapshot: cloneSalesLinePlainValue(salesOrder)
+    };
 
     if (hasPassedRequestForSalesOrder(salesOrder)) {
         showToast('Bu satır için talep zaten geçilmiş.', 'info');
@@ -1095,7 +1234,7 @@ async function passSalesLineRequest(salesOrderId) {
             delete salesOrder._requestUnmatched;
                 recordSalesLineChange(salesOrderId, ACTION_COLUMN, 'Bekliyor', 'Talep Geçildi');
             }
-        queueSalesLineRowChange(salesOrder);
+        queueSalesLineRowChange(salesOrder, baseMeta, ['_linkedRequestIds', '_requestPassedAt', '_requestStatus', '_requestUnmatched']);
         saveSalesLinesState({ source: 'manual-request', salesOrderId }, { immediate: true });
         renderTable();
         renderDashboard();
@@ -1122,6 +1261,10 @@ async function resetSalesLineRequest(salesOrderId) {
 
     const salesOrder = allOrders.find(order => order._id === salesOrderId);
     if (!salesOrder) return;
+    const baseMeta = {
+        ...getSalesLineRowSyncMeta(salesOrder),
+        rowSnapshot: cloneSalesLinePlainValue(salesOrder)
+    };
 
     if (!hasPassedRequestForSalesOrder(salesOrder)) {
         showToast('Bu satır için geri alınacak talep yok.', 'info');
@@ -1152,7 +1295,7 @@ async function resetSalesLineRequest(salesOrderId) {
         salesOrder._requestResetAt = new Date().toISOString();
 
         recordSalesLineChange(salesOrderId, ACTION_COLUMN, 'Talep Geçildi', 'Bekliyor');
-        queueSalesLineRowChange(salesOrder);
+        queueSalesLineRowChange(salesOrder, baseMeta, ['_linkedRequestIds', '_requestPassedAt', '_requestStatus', '_requestUnmatched', '_requestResetAt']);
         await saveSalesLinesState({ source: 'request-reset', salesOrderId }, { immediate: true });
         renderTable();
         renderDashboard();
@@ -1239,6 +1382,10 @@ async function confirmBulkPassSalesLineRequests() {
                 : [];
 
             if (linkedRequestIds.length > 0) {
+                const baseMeta = {
+                    ...getSalesLineRowSyncMeta(order),
+                    rowSnapshot: cloneSalesLinePlainValue(order)
+                };
                 order._linkedRequestIds = linkedRequestIds;
                 order._requestPassedAt = new Date().toISOString();
                 if (itemResult.unmatched) {
@@ -1250,7 +1397,7 @@ async function confirmBulkPassSalesLineRequests() {
                     delete order._requestUnmatched;
                     recordSalesLineChange(order._id, ACTION_COLUMN, 'Bekliyor', 'Talep Geçildi');
                 }
-                queueSalesLineRowChange(order);
+                queueSalesLineRowChange(order, baseMeta, ['_linkedRequestIds', '_requestPassedAt', '_requestStatus', '_requestUnmatched']);
                 successCount += 1;
             } else {
                 skippedCount += 1;
@@ -1300,7 +1447,8 @@ function getSalesLinesPayloadSignature(payload) {
                 rowCount,
                 changedRowIds: Array.isArray(meta.changedRowIds) ? meta.changedRowIds : [],
                 deletedRowIds: Array.isArray(meta.deletedRowIds) ? meta.deletedRowIds : [],
-                rowBaseMeta: meta.rowBaseMeta || {}
+                rowBaseMeta: meta.rowBaseMeta || {},
+                changedColumnsByRow: meta.changedColumnsByRow || {}
             });
         }
 
@@ -1445,12 +1593,47 @@ function writePendingSalesLinesPatches(patches) {
 async function queuePendingSalesLinesPatch(payload, changedRowIds = [], deletedRowIds = []) {
     if (!payload) return false;
 
-    const patches = readPendingSalesLinesPatches();
+    const nextChangedRowIds = Array.from(new Set((Array.isArray(changedRowIds) ? changedRowIds : [])
+        .map(id => String(id || '').trim())
+        .filter(Boolean)));
+    const nextDeletedRowIds = Array.from(new Set((Array.isArray(deletedRowIds) ? deletedRowIds : [])
+        .map(id => String(id || '').trim())
+        .filter(Boolean)));
+    const nextRowIdSet = new Set([...nextChangedRowIds, ...nextDeletedRowIds]);
+    const patches = readPendingSalesLinesPatches()
+        .map(patch => {
+            const patchChanged = (Array.isArray(patch.changedRowIds) ? patch.changedRowIds : [])
+                .map(id => String(id || '').trim())
+                .filter(id => id && !nextRowIdSet.has(id));
+            const patchDeleted = (Array.isArray(patch.deletedRowIds) ? patch.deletedRowIds : [])
+                .map(id => String(id || '').trim())
+                .filter(id => id && !nextRowIdSet.has(id));
+            if (patchChanged.length === patch.changedRowIds?.length && patchDeleted.length === patch.deletedRowIds?.length) {
+                return patch;
+            }
+            const patchPayload = patch.payload && typeof patch.payload === 'object'
+                ? {
+                    ...patch.payload,
+                    meta: {
+                        ...(patch.payload.meta || {}),
+                        changedRowIds: patchChanged,
+                        deletedRowIds: patchDeleted
+                    }
+                }
+                : patch.payload;
+            return {
+                ...patch,
+                changedRowIds: patchChanged,
+                deletedRowIds: patchDeleted,
+                payload: patchPayload
+            };
+        })
+        .filter(patch => (patch.changedRowIds?.length || patch.deletedRowIds?.length));
 
     patches.push({
         queuedAt: new Date().toISOString(),
-        changedRowIds: Array.isArray(changedRowIds) ? changedRowIds : [],
-        deletedRowIds: Array.isArray(deletedRowIds) ? deletedRowIds : [],
+        changedRowIds: nextChangedRowIds,
+        deletedRowIds: nextDeletedRowIds,
         payload
     });
 
@@ -1476,11 +1659,27 @@ async function flushPendingSalesLinesPatches() {
     try {
         for (const patch of patches) {
             try {
+                const waitingConflictIds = Array.isArray(patch.conflictIds)
+                    ? patch.conflictIds.map(id => String(id || '').trim()).filter(Boolean)
+                    : [];
+                const stillWaitingForConflict = patch.conflictWaiting
+                    && waitingConflictIds.length > 0
+                    && waitingConflictIds.some(id => salesLineConflictQueue.some(item => String(item.id) === id));
+                if (stillWaitingForConflict) {
+                    remaining.push(patch);
+                    continue;
+                }
+
                 const result = await flushSalesLinesCloudSave(patch.payload);
 
                 if (Array.isArray(result?.conflicts) && result.conflicts.length > 0) {
                     addSalesLineConflicts(result.conflicts);
-                    sentCount += 1;
+                    remaining.push({
+                        ...patch,
+                        conflictWaiting: true,
+                        lastConflictAt: new Date().toISOString(),
+                        conflictIds: getSalesLineConflictIds(result)
+                    });
                     continue;
                 }
 
@@ -1566,8 +1765,7 @@ function persistSalesLinesPayloadLocally(payload) {
 }
 
 function getSalesLinesPayloadRowCount(payload) {
-    if (Array.isArray(payload?.allOrders)) return payload.allOrders.length;
-    return Number(payload?.meta?.rowCount || 0) || 0;
+    return Number(payload?.meta?.rowCount || 0) || (Array.isArray(payload?.allOrders) ? payload.allOrders.length : 0);
 }
 
 function getCurrentSalesLineActor() {
@@ -1715,23 +1913,92 @@ function getSalesLineConflictChangedColumns(item) {
     return normalizeSalesLineColumnList([
         ...(item?.localChangedColumns || []),
         ...(item?.remoteChangedColumns || item?.remoteChangedFields || [])
-    ]);
+    ]).filter(col => !isInternalSalesLineConflictColumn(col));
+}
+
+const SALES_LINE_CONFLICT_INTERNAL_COLUMNS = new Set([
+    '_siparisTarihi',
+    '_teslimTarihi',
+    '_searchIndex',
+    '_sync',
+    '_rowVersion',
+    '_rowUpdatedAt',
+    '_rowUpdatedBy',
+    '_rowUpdatedByUid',
+    '_baseRowVersion',
+    '_baseRowUpdatedAt',
+    '_baseRowUpdatedBy',
+    '_baseRowUpdatedByUid'
+]);
+
+function isInternalSalesLineConflictColumn(col) {
+    return SALES_LINE_CONFLICT_INTERNAL_COLUMNS.has(String(col || '').trim());
+}
+
+function normalizeSalesLineConflictDateValue(value) {
+    if (value === null || value === undefined || value === '') return '';
+    let parsed = null;
+    if (value instanceof Date && !isNaN(value.getTime())) {
+        parsed = value;
+    } else if (typeof parseDate === 'function') {
+        parsed = parseDate(value);
+    }
+    if (!(parsed instanceof Date) || isNaN(parsed.getTime())) return String(value ?? '').trim();
+    return toDateOnlyString(parsed) || '';
+}
+
+function getSalesLineConflictComparableValue(col, value) {
+    if (col === 'Sipariş Tarihi' || col === 'Teslim Tarihi' || String(col || '').includes('Tarihi')) {
+        return normalizeSalesLineConflictDateValue(value);
+    }
+    return String(value ?? '').trim();
+}
+
+function getSalesLineConflictDisplayValue(col, value) {
+    if (col === 'Sipariş Tarihi' || col === 'Teslim Tarihi') {
+        const normalized = normalizeSalesLineConflictDateValue(value);
+        const parsed = normalized && typeof parseDate === 'function' ? parseDate(normalized) : null;
+        if (parsed instanceof Date && !isNaN(parsed.getTime()) && typeof formatDate === 'function') return formatDate(parsed);
+    }
+    return value;
 }
 
 function getSalesLineConflictDiffRows(item) {
     const localRow = item?.localRow || {};
     const remoteRow = item?.remoteRow || {};
+    if (!hasSalesLineConflictRemoteRow(item)) return [];
     let columns = getSalesLineConflictChangedColumns(item);
     if (columns.length === 0) {
         columns = normalizeSalesLineColumnList(Object.keys({ ...localRow, ...remoteRow })
             .filter(col => !String(col).startsWith('_'))
-            .filter(col => String(localRow[col] ?? '') !== String(remoteRow[col] ?? '')));
+            .filter(col => !isInternalSalesLineConflictColumn(col)));
     }
-    return columns.map(col => ({
-        col,
-        local: localRow[col],
-        remote: remoteRow[col]
-    }));
+    return columns
+        .filter(col => !isInternalSalesLineConflictColumn(col))
+        .filter(col => getSalesLineConflictComparableValue(col, localRow[col]) !== getSalesLineConflictComparableValue(col, remoteRow[col]))
+        .map(col => ({
+            col,
+            local: getSalesLineConflictDisplayValue(col, localRow[col]),
+            remote: getSalesLineConflictDisplayValue(col, remoteRow[col])
+        }));
+}
+
+function hasSalesLineConflictRemoteRow(item) {
+    const remoteRow = item?.remoteRow;
+    if (!remoteRow || typeof remoteRow !== 'object') return false;
+    return Object.keys(remoteRow).some(key => !String(key).startsWith('_') && String(remoteRow[key] ?? '').trim() !== '');
+}
+
+function getSalesLineConflictReasonText(item) {
+    const reason = String(item?.conflictReason || item?.reason || '').trim();
+    if (reason === 'missing-remote-row') {
+        return 'Merkezde bu satır bulunamadı. Satır silinmiş, yeniden oluşturulmuş veya key eşleşmesi bozulmuş olabilir.';
+    }
+    if (reason === 'remote-newer-time') return 'Merkezdeki satır sizin düzenlemenizden sonra güncellenmiş.';
+    if (reason === 'remote-newer-version') return 'Merkezde bu satırın daha yeni bir versiyonu var.';
+    if (reason === 'same-column-change') return 'Merkezde aynı alan siz düzenlerken değiştirilmiş.';
+    if (reason === 'delete-remote-newer') return 'Silme işlemi sırasında merkezde satırın daha yeni bir değişikliği bulundu.';
+    return 'Merkezdeki satır siz düzenlerken değişmiş. Otomatik üzerine yazılmadı.';
 }
 
 function isSalesLinesCloudSaveSuccessful(result) {
@@ -1799,8 +2066,12 @@ function renderSalesLineConflictModal() {
         const remoteRow = item.remoteRow || {};
         const label = getSalesLineConflictLabel(localRow) || getSalesLineConflictLabel(remoteRow);
         const safeIdArg = JSON.stringify(String(item.id || '')).replace(/"/g, '&quot;');
+        const hasRemoteRow = hasSalesLineConflictRemoteRow(item);
+        const reasonText = getSalesLineConflictReasonText(item);
         const diffRows = getSalesLineConflictDiffRows(item);
-        const diffHtml = diffRows.length
+        const diffHtml = !hasRemoteRow
+            ? `<div class="conflict-card-warning">${esc(reasonText)}</div>`
+            : diffRows.length
             ? `<div class="conflict-diff-table-wrap">
                 <table class="conflict-diff-table">
                     <thead><tr><th>Alan</th><th>Sizin degeriniz</th><th>Merkezdeki deger</th></tr></thead>
@@ -1814,6 +2085,9 @@ function renderSalesLineConflictModal() {
                 </table>
             </div>`
             : '<div class="conflict-card-warning">Alan bilgisi eksik oldugu icin satir bazli guvenli cozum kullaniliyor.</div>';
+        const remoteButton = hasRemoteRow
+            ? `<button class="btn btn-sm" type="button" onclick="resolveSalesLineConflictUseRemote(${safeIdArg})">Merkezi veriyi kullan</button>`
+            : '';
         return `
             <div class="conflict-card">
                 <div class="conflict-card-title">${esc(label)}</div>
@@ -1823,10 +2097,10 @@ function renderSalesLineConflictModal() {
                     <div><strong>Merkez güncelleyen:</strong> ${esc(String(item.remoteMeta?.updatedBy || remoteRow._sync?.updatedByParaf || remoteRow._rowUpdatedBy || '-'))}</div>
                     <div><strong>İşlem:</strong> ${item.type === 'delete' ? 'Silme' : 'Güncelleme'}</div>
                 </div>
-                <div class="conflict-card-warning">Merkezdeki satır siz düzenlerken değişmiş. Otomatik üzerine yazılmadı.</div>
+                ${hasRemoteRow ? `<div class="conflict-card-warning">${esc(reasonText)}</div>` : ''}
                 ${diffHtml}
                 <div class="conflict-card-actions">
-                    <button class="btn btn-sm" type="button" onclick="resolveSalesLineConflictUseRemote(${safeIdArg})">Merkezi veriyi kullan</button>
+                    ${remoteButton}
                     <button class="btn btn-sm btn-danger" type="button" onclick="resolveSalesLineConflictUseMine(${safeIdArg})">Benim değişikliğimi uygula</button>
                 </div>
             </div>
@@ -1866,10 +2140,9 @@ function buildSalesLinesPayloadForRows(rowIds, meta = {}, options = {}) {
         },
         editedLog,
         columnOrder: [],
-        allOrders: allOrders.map(order => {
-            const id = String(order?._id || order?.id || '').trim();
-            return serializeSalesLineOrderCached(order, normalizedRowIds.includes(id));
-        })
+        allOrders: allOrders
+            .filter(order => normalizedRowIds.includes(String(order?._id || order?.id || '').trim()))
+            .map(order => serializeSalesLineOrderCached(order, true))
     };
 }
 
@@ -1885,6 +2158,7 @@ function replaceSalesLineOrderFromRemote(remoteRow) {
     pendingDeletedSalesLineRowIds.delete(id);
     delete pendingSalesLineRowBaseMeta[id];
     clearPendingSalesLineColumnState(id);
+    pendingLocalSalesLineEdits.delete(id);
     return true;
 }
 
@@ -1930,6 +2204,7 @@ async function resolveSalesLineConflictUseMine(id) {
     pendingChangedSalesLineRowIds.delete(String(id));
     delete pendingSalesLineRowBaseMeta[String(id)];
     clearPendingSalesLineColumnState(id);
+    pendingLocalSalesLineEdits.delete(String(id));
     removeSalesLineConflict(id);
     showToast('Sizin değişikliğiniz merkeze uygulandı', 'success');
 }
@@ -1956,8 +2231,9 @@ function queueSalesLineRowChange(order, baseMeta = null, changedCol = null) {
     });
     pendingChangedSalesLineRowIds.add(id);
     pendingDeletedSalesLineRowIds.delete(id);
-    normalizeSalesLineColumnList(Array.isArray(changedCol) ? changedCol : [changedCol])
-        .forEach(col => rememberPendingSalesLineChangedColumn(id, col));
+    const changedColumns = normalizeSalesLineColumnList(Array.isArray(changedCol) ? changedCol : [changedCol]);
+    changedColumns.forEach(col => rememberPendingSalesLineChangedColumn(id, col));
+    rememberPendingLocalSalesLineEdit(id, order, changedColumns);
 }
 
 function queueSalesLineRowDelete(order) {
@@ -1970,6 +2246,7 @@ function queueSalesLineRowDelete(order) {
     order._baseRowUpdatedAt = pendingSalesLineRowBaseMeta[id].updatedAt || '';
     pendingChangedSalesLineRowIds.delete(id);
     clearPendingSalesLineColumnState(id);
+    pendingLocalSalesLineEdits.delete(id);
     pendingDeletedSalesLineRowIds.add(id);
 }
 
@@ -2260,6 +2537,7 @@ async function saveSalesLinesState(meta = {}, options = {}) {
             rowBaseMeta[id] = pendingSalesLineRowBaseMeta[id] || {};
         });
         const changedColumnsByRow = buildPendingSalesLineChangedColumnsByRow(changedRowIds);
+        const changedRowIdSet = new Set(changedRowIds);
         if (!fullSync) {
             if (changedRowIds.length || deletedRowIds.length) {
                 normalizedMeta.syncMode = 'row-patch';
@@ -2273,18 +2551,47 @@ async function saveSalesLinesState(meta = {}, options = {}) {
         } else {
             normalizedMeta.syncMode = 'full';
         }
+        normalizedMeta.rowCount = allOrders.length;
+        const changedEditedLog = {};
+        changedRowIds.forEach(id => {
+            if (Object.prototype.hasOwnProperty.call(editedLog || {}, id)) {
+                changedEditedLog[id] = editedLog[id];
+            }
+        });
+        const cloudOrders = fullSync
+            ? allOrders.map(order => serializeSalesLineOrderCached(order, true))
+            : allOrders
+                .filter(order => changedRowIdSet.has(String(order?._id || order?.id || '').trim()))
+                .map(order => serializeSalesLineOrderCached(order, true));
         const payload = {
             version: 1,
             savedAt: new Date().toISOString(),
             meta: normalizedMeta,
+            editedLog: fullSync ? editedLog : changedEditedLog,
+            columnOrder: [],
+            allOrders: cloudOrders
+        };
+        const localBackupPayload = {
+            version: 1,
+            savedAt: payload.savedAt,
+            meta: {
+                ...(normalizedMeta || {}),
+                syncMode: fullSync ? normalizedMeta.syncMode : 'full',
+                changedRowIds: [],
+                deletedRowIds: [],
+                rowBaseMeta: {},
+                changedColumnsByRow: {},
+                rowCount: allOrders.length
+            },
+            todayOutputs: {
+                dateKey: getSalesLinesTodayOutputDateKey(),
+                rowIds: Array.from(todayOutputOrderIds || [])
+            },
             editedLog,
             columnOrder: [],
-            allOrders: allOrders.map(order => {
-                const id = String(order?._id || order?.id || '').trim();
-                return serializeSalesLineOrderCached(order, fullSync || changedRowIds.includes(id) || deletedRowIds.includes(id));
-            })
+            allOrders: allOrders.map(order => serializeSalesLineOrderCached(order, true))
         };
-        persistSalesLinesPayloadLocally(payload);
+        persistSalesLinesPayloadLocally(localBackupPayload);
         lastSalesLinesLocalSaveTime = Date.now();
         const immediate = !!(options.immediate || meta.sourceFile);
         const saved = await scheduleSalesLinesCloudSave(payload, immediate);
@@ -2299,6 +2606,7 @@ async function saveSalesLinesState(meta = {}, options = {}) {
         changedRowIds.forEach(id => {
             if (!conflictIds.has(id)) pendingChangedSalesLineRowIds.delete(id);
             if (!conflictIds.has(id)) clearPendingSalesLineColumnState(id);
+            if (!conflictIds.has(id)) pendingLocalSalesLineEdits.delete(id);
         });
         deletedRowIds.forEach(id => {
             if (!conflictIds.has(id)) pendingDeletedSalesLineRowIds.delete(id);
@@ -2352,20 +2660,30 @@ function loadSalesLinesStateFromPayload(payload, options = {}) {
         const previousPage = currentPage;
         const previousColFilters = colFilters;
 
+        filteredOrders = [];
+        const incomingOrders = buildIncomingSalesLinesOrdersForLoad(payload);
+        const mergedIncomingOrders = mergeIncomingSalesLinesWithPendingLocalRows(incomingOrders);
+        const payloadForLocalPersist = {
+            ...payload,
+            meta: {
+                ...(payload.meta || {}),
+                syncMode: String(payload?.meta?.syncMode || '').trim() === 'row-patch' ? 'full' : payload?.meta?.syncMode,
+                rowCount: mergedIncomingOrders.length
+            },
+            allOrders: mergedIncomingOrders.map(order => serializeSalesLineOrder(order))
+        };
         if (!options.skipLocalPersist) {
             try {
-                persistSalesLinesPayloadLocally(payload);
+                persistSalesLinesPayloadLocally(payloadForLocalPersist);
             } catch (storageError) {
                 console.warn('Sales lines payload localStorage kaydi basarisiz:', storageError);
             }
         }
-
-        filteredOrders = [];
         const normalizedIdentityState = normalizeSalesLineIdentities(
-            Array.isArray(payload.allOrders) ? payload.allOrders.map(deserializeSalesLineOrder) : [],
+            mergedIncomingOrders,
             payload.editedLog || {}
         );
-        editedLog = normalizedIdentityState.editedLog;
+        editedLog = mergeEditedLogForIncomingSalesLines(payload, normalizedIdentityState.editedLog);
         const incomingTodayOutputIds = Array.isArray(payload.meta?.todayOutputOrderIds)
             ? payload.meta.todayOutputOrderIds
             : (Array.isArray(payload.todayOutputs?.rowIds) ? payload.todayOutputs.rowIds : []);

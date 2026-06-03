@@ -445,28 +445,25 @@ var firebaseSync = {
         return !value || /^row_\d+$/i.test(value);
     },
 
+    createSalesLinePermanentId(prefix = 'sl') {
+        const safePrefix = String(prefix || 'sl').replace(/[^a-z0-9_]/gi, '') || 'sl';
+        const random = Math.random().toString(36).slice(2, 9);
+        return `${safePrefix}_${Date.now()}_${random}`;
+    },
+
+    buildSalesLineExternalKey(row) {
+        const belgeNo = this.getSalesLineIdentityField(row, ['Belge No', 'BELGE NO', 'Document No', 'Order No']);
+        const lineNo = this.getSalesLineIdentityField(row, ['Sat\u0131r No', 'Satir No', 'Line No', 'S\u0131ra No', 'Sira No', 'S\u0131ra', 'Sira']);
+        if (belgeNo && lineNo) {
+            return [belgeNo, lineNo].map(value => this.normalizeSalesLineIdentityValue(value)).join('|');
+        }
+        return '';
+    },
+
     buildStableSalesLineId(row, index = 0) {
         const existingId = String(row?._id || row?.id || '').trim();
         if (existingId && !this.isGeneratedSalesLineId(existingId)) return existingId;
-
-        const belgeNo = this.getSalesLineIdentityField(row, ['Belge No', 'BELGE NO', 'Document No', 'Order No']);
-        const lineNo = this.getSalesLineIdentityField(row, ['Satır No', 'Satir No', 'Line No', 'Sıra No', 'Sira No', 'Sıra', 'Sira']);
-        const itemNo = this.getSalesLineIdentityField(row, ['No', 'NO', 'Katalog No', 'Madde No', 'Stok Kodu', 'Ürün No', 'Urun No']);
-        const quantity = this.getSalesLineIdentityField(row, ['Miktar', 'MIKTAR', 'Quantity']);
-        const date = this.getSalesLineIdentityField(row, ['Sevk Tarihi', 'Termin Tarihi', 'Teslim Tarihi', 'Talep edilen teslim tarihi']);
-        let raw = '';
-
-        if (belgeNo && lineNo) {
-            raw = [belgeNo, lineNo].map(value => this.normalizeSalesLineIdentityValue(value)).join('|');
-        } else if (belgeNo && itemNo && (quantity || date)) {
-            raw = [belgeNo, itemNo, quantity, date].map(value => this.normalizeSalesLineIdentityValue(value)).join('|');
-        } else if (itemNo && (quantity || date)) {
-            raw = [itemNo, quantity, date].map(value => this.normalizeSalesLineIdentityValue(value)).join('|');
-        }
-
-        if (raw.replace(/\|/g, '')) return `sl_${this.simpleSalesLineHash(raw)}`;
-        if (existingId) return `sl_${this.simpleSalesLineHash(`existing|${existingId}`)}`;
-        return `sl_manual_${Date.now()}_${index}`;
+        return this.createSalesLinePermanentId(row?._manualEntry || row?._manual || row?._source === 'manual' ? 'manual_sl' : 'sl');
     },
 
     normalizeSalesLineIdentities(orders, editedLogMap = {}, meta = {}) {
@@ -474,12 +471,21 @@ var firebaseSync = {
         const idMap = new Map();
         const normalizedOrders = (Array.isArray(orders) ? orders : []).map((order, index) => {
             const previousId = String(order?._id || order?.id || '').trim();
-            const baseId = this.buildStableSalesLineId(order, index);
+            const baseId = previousId && !this.isGeneratedSalesLineId(previousId)
+                ? previousId
+                : this.buildStableSalesLineId(order, index);
             const count = seen.get(baseId) || 0;
             seen.set(baseId, count + 1);
-            const nextId = count === 0 ? baseId : `${baseId}_${count + 1}`;
+            const nextId = count === 0 ? baseId : this.createSalesLinePermanentId(order?._manualEntry || order?._manual || order?._source === 'manual' ? 'manual_sl' : 'sl');
             if (previousId && previousId !== nextId) idMap.set(previousId, nextId);
-            return { ...(order || {}), _id: nextId };
+            const normalizedOrder = { ...(order || {}), _id: nextId };
+            const externalKey = String(normalizedOrder._externalKey || normalizedOrder._excelKey || '').trim() || this.buildSalesLineExternalKey(normalizedOrder);
+            if (externalKey && normalizedOrder._source !== 'manual') {
+                normalizedOrder._source = normalizedOrder._source || 'excel';
+                normalizedOrder._externalKey = externalKey;
+                normalizedOrder._excelKey = normalizedOrder._excelKey || externalKey;
+            }
+            return normalizedOrder;
         });
         const normalizedEditedLog = {};
         Object.entries(editedLogMap || {}).forEach(([id, logs]) => {
@@ -564,6 +570,8 @@ var firebaseSync = {
     },
 
     getSalesLineRowKey(order, index = 0) {
+        const id = String(order?._id || order?.id || '').trim();
+        if (id) return this.encodeDatabaseKey(id);
         return this.encodeDatabaseKey(this.buildStableSalesLineId(order, index));
     },
 
@@ -602,15 +610,89 @@ var firebaseSync = {
 
     getSalesLineChangedColumnsBetween(baseRow = {}, nextRow = {}) {
         if (!baseRow || !nextRow || typeof baseRow !== 'object' || typeof nextRow !== 'object') return [];
-        const ignored = new Set(['_sync', '_rowVersion', '_rowUpdatedAt', '_rowUpdatedByUid', '_rowUpdatedBy', '_baseRowVersion', '_baseRowUpdatedAt', '_searchIndex']);
+        const ignored = new Set([
+            '_siparisTarihi',
+            '_teslimTarihi',
+            '_searchIndex',
+            '_sync',
+            '_rowVersion',
+            '_rowUpdatedAt',
+            '_rowUpdatedBy',
+            '_rowUpdatedByUid',
+            '_baseRowVersion',
+            '_baseRowUpdatedAt',
+            '_baseRowUpdatedBy',
+            '_baseRowUpdatedByUid'
+        ]);
+        const normalizeDateValue = value => {
+            if (value === null || value === undefined || value === '') return '';
+            if (value instanceof Date && !isNaN(value.getTime())) {
+                return [
+                    value.getFullYear(),
+                    String(value.getMonth() + 1).padStart(2, '0'),
+                    String(value.getDate()).padStart(2, '0')
+                ].join('-');
+            }
+            const str = String(value).trim();
+            let match = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+            if (match) return `${match[1]}-${String(match[2]).padStart(2, '0')}-${String(match[3]).padStart(2, '0')}`;
+            match = str.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+            if (match) return `${match[3]}-${String(match[2]).padStart(2, '0')}-${String(match[1]).padStart(2, '0')}`;
+            match = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+            if (match) return `${match[3]}-${String(match[2]).padStart(2, '0')}-${String(match[1]).padStart(2, '0')}`;
+            return str;
+        };
+        const getComparableValue = (col, value) => {
+            if (col === 'Sipariş Tarihi' || col === 'Teslim Tarihi' || String(col || '').includes('Tarihi')) {
+                return normalizeDateValue(value);
+            }
+            return this.getComparableString(value);
+        };
         return this.normalizeSalesLineColumnList(Object.keys({ ...baseRow, ...nextRow })
             .filter(col => !ignored.has(col))
-            .filter(col => this.getComparableString(baseRow[col]) !== this.getComparableString(nextRow[col])));
+            .filter(col => getComparableValue(col, baseRow[col]) !== getComparableValue(col, nextRow[col])));
     },
 
     salesLineColumnsIntersect(left = [], right = []) {
         const rightSet = new Set(this.normalizeSalesLineColumnList(right));
         return this.normalizeSalesLineColumnList(left).some(col => rightSet.has(col));
+    },
+
+    getSalesLineActorFromRowEntry(entry) {
+        const row = this.parseSalesLineRowEntry(entry);
+        return this.getSalesLineActorFromRow(row, {
+            uid: entry?.rowUpdatedByUid || '',
+            paraf: entry?.rowUpdatedBy || ''
+        });
+    },
+
+    getSalesLineActorFromRow(row = {}, fallback = {}) {
+        const sync = row?._sync && typeof row._sync === 'object' ? row._sync : {};
+        return {
+            uid: String(sync.updatedByUid || row?._rowUpdatedByUid || fallback.uid || '').trim(),
+            paraf: String(sync.updatedByParaf || row?._rowUpdatedBy || fallback.paraf || '').trim()
+        };
+    },
+
+    getCurrentSalesLineActorFallback() {
+        try {
+            const user = typeof currentUser !== 'undefined' ? currentUser : (window.currentUser || null);
+            return {
+                uid: String(user?.uid || user?.userId || user?.authUid || '').trim(),
+                paraf: String(user?.paraf || user?.username || user?.fullName || '').trim()
+            };
+        } catch (_) {
+            return { uid: '', paraf: '' };
+        }
+    },
+
+    isSameSalesLineActor(left = {}, right = {}) {
+        const leftUid = String(left.uid || '').trim();
+        const rightUid = String(right.uid || '').trim();
+        if (leftUid && rightUid) return leftUid === rightUid;
+        const leftParaf = String(left.paraf || '').trim().toLocaleLowerCase('tr');
+        const rightParaf = String(right.paraf || '').trim().toLocaleLowerCase('tr');
+        return !!(leftParaf && rightParaf && leftParaf === rightParaf);
     },
 
     buildMergedSalesLineRow(remoteRow, localRow, localChangedColumns = []) {
@@ -627,10 +709,13 @@ var firebaseSync = {
 
     buildSalesLineConflict(id, type, localOrder, currentEntry, baseMeta = {}, key = '', extra = {}) {
         const remoteRow = this.parseSalesLineRowEntry(currentEntry);
+        const conflictReason = String(extra.conflictReason || extra.reason || 'version-conflict').trim() || 'version-conflict';
         return {
             id,
             key,
             type,
+            reason: conflictReason,
+            conflictReason,
             localRow: this.cloneData(localOrder || {}),
             remoteRow: this.cloneData(remoteRow || {}),
             baseMeta: this.cloneData(baseMeta || {}),
@@ -644,6 +729,24 @@ var firebaseSync = {
             },
             conflictedAt: new Date().toISOString()
         };
+    },
+
+    logSalesLineConflictDebug(details = {}) {
+        try {
+            console.warn('Sales lines row conflict', {
+                rowId: details.rowId || details.id || '',
+                key: details.key || '',
+                baseVersion: Number(details.baseVersion || 0) || 0,
+                currentVersion: Number(details.currentVersion || 0) || 0,
+                baseTime: Number(details.baseTime || 0) || 0,
+                currentTime: Number(details.currentTime || 0) || 0,
+                localActor: details.localActor || null,
+                remoteActor: details.remoteActor || null,
+                conflictReason: details.conflictReason || details.reason || 'version-conflict',
+                localChangedColumns: this.normalizeSalesLineColumnList(details.localChangedColumns || []),
+                remoteChangedColumns: this.normalizeSalesLineColumnList(details.remoteChangedColumns || [])
+            });
+        } catch (_) {}
     },
 
     getSalesLinePatchRowIds(payload, key) {
@@ -1134,13 +1237,13 @@ var firebaseSync = {
                     await this.ordersRowsRef.child(key).transaction(current => {
                         conflictCurrent = current;
                         if (options.forceConflictOverwrite) return this.buildOrderRowEntry(after);
-                        if (!current && Number(baseMeta.version || 0) > 0) {
-                            rejected = true;
-                            return;
-                        }
+                        if (!current) return this.buildOrderRowEntry(after);
                         const currentVersion = this.getOrderRowEntryVersion(current);
                         const baseVersion = Number(baseMeta.version || 0) || 0;
-                        if (current && currentVersion !== baseVersion) {
+                        if (current && currentVersion < baseVersion) {
+                            return this.buildOrderRowEntry(after);
+                        }
+                        if (current && baseVersion > 0 && currentVersion > baseVersion) {
                             rejected = true;
                             return;
                         }
@@ -1173,7 +1276,10 @@ var firebaseSync = {
                         if (options.forceConflictOverwrite) return this.buildOrderRowEntry(after);
                         const currentVersion = this.getOrderRowEntryVersion(current);
                         const baseVersion = Number(baseMeta.version || 0) || 0;
-                        if (current && currentVersion !== baseVersion) {
+                        if (current && currentVersion < baseVersion) {
+                            return this.buildOrderRowEntry(after);
+                        }
+                        if (current && baseVersion > 0 && currentVersion > baseVersion) {
                             rejected = true;
                             return;
                         }
@@ -1591,7 +1697,7 @@ var firebaseSync = {
                     ...incomingMeta
                 },
                 columnOrder: Array.isArray(normalizedPayload.columnOrder) ? normalizedPayload.columnOrder : (currentMeta.columnOrder || []),
-                rowCount: currentMeta.rowCount || (Array.isArray(normalizedPayload.allOrders) ? normalizedPayload.allOrders.length : 0),
+                rowCount: currentMeta.rowCount || Number(incomingMeta.rowCount || 0) || (Array.isArray(normalizedPayload.allOrders) ? normalizedPayload.allOrders.length : 0),
                 updatedAt: now
             };
         });
@@ -1626,35 +1732,46 @@ var firebaseSync = {
         for (const id of changedRowIds) {
             const item = ordersById.get(id);
             if (!item) continue;
-            const key = this.getSalesLineRowKey(item.order, item.index);
+            const key = this.encodeDatabaseKey(id);
             const incomingEntry = this.buildSalesLineRowEntry(item.order, item.index);
             const incomingTime = this.getSalesLineRowEntryTime(incomingEntry);
             const baseTime = Date.parse(rowBaseMeta[id]?.updatedAt || '') || 0;
             const baseVersion = Number(rowBaseMeta[id]?.version || 0) || 0;
             const baseRowSnapshot = rowBaseMeta[id]?.rowSnapshot || null;
-            const localChangedColumns = this.normalizeSalesLineColumnList(changedColumnsByRow[id] || []);
+            let localChangedColumns = this.normalizeSalesLineColumnList(changedColumnsByRow[id] || []);
             let remoteChangedColumns = [];
             let rejected = false;
             let autoMerged = false;
             let conflictCurrent = null;
+            let conflictReason = '';
+            let conflictCurrentVersion = 0;
+            let localActor = this.getSalesLineActorFromRow(item.order, this.getCurrentSalesLineActorFallback());
+            let remoteActor = null;
 
             await this.salesLinesRowsRef.child(key).transaction(current => {
                 conflictCurrent = current;
+                conflictCurrentVersion = this.getSalesLineRowEntryVersion(current);
                 if (options.forceConflictOverwrite) {
                     return incomingEntry;
                 }
-                if (!current && baseVersion > 0) {
-                    rejected = true;
-                    return;
-                }
-                const currentVersion = this.getSalesLineRowEntryVersion(current);
+                if (!current) return incomingEntry;
+                const currentVersion = conflictCurrentVersion;
                 const currentTime = this.getSalesLineRowEntryTime(current);
-                const versionConflict = current && currentVersion !== baseVersion;
-                const timeConflict = (baseTime && currentTime && currentTime > baseTime)
-                    || (!baseTime && currentTime && incomingTime && currentTime > incomingTime);
-                if (versionConflict || timeConflict) {
+                if (current && currentVersion < baseVersion) {
+                    return incomingEntry;
+                }
+                const remoteNewerByVersion = current && baseVersion > 0 && currentVersion > baseVersion;
+                const remoteNewerByTime = current && baseTime && currentTime && currentTime > baseTime;
+                if (remoteNewerByVersion || remoteNewerByTime) {
                     const remoteRow = this.parseSalesLineRowEntry(current);
+                    remoteActor = this.getSalesLineActorFromRowEntry(current);
+                    if (this.isSameSalesLineActor(localActor, remoteActor)) {
+                        return incomingEntry;
+                    }
                     remoteChangedColumns = this.getSalesLineChangedColumnsBetween(baseRowSnapshot, remoteRow);
+                    if (baseRowSnapshot && localChangedColumns.length === 0) {
+                        localChangedColumns = this.getSalesLineChangedColumnsBetween(baseRowSnapshot, item.order);
+                    }
                     if (baseRowSnapshot && localChangedColumns.length > 0 && !this.salesLineColumnsIntersect(localChangedColumns, remoteChangedColumns)) {
                         const mergedRow = this.buildMergedSalesLineRow(remoteRow, item.order, localChangedColumns);
                         const mergedEntry = this.buildSalesLineRowEntry({
@@ -1670,16 +1787,35 @@ var firebaseSync = {
                         autoMerged = true;
                         return mergedEntry;
                     }
+                    const sameColumnChanged = this.salesLineColumnsIntersect(localChangedColumns, remoteChangedColumns);
+                    if (baseRowSnapshot && !sameColumnChanged && localChangedColumns.length > 0) {
+                        return incomingEntry;
+                    }
                     rejected = true;
+                    conflictReason = sameColumnChanged ? 'same-column-change' : 'unknown-local-columns';
                     return;
                 }
                 return incomingEntry;
             });
 
             if (rejected) {
-                conflicts.push(this.buildSalesLineConflict(id, 'update', item.order, conflictCurrent, rowBaseMeta[id], key, {
+                this.logSalesLineConflictDebug({
+                    rowId: id,
+                    key,
+                    baseVersion,
+                    currentVersion: conflictCurrentVersion,
+                    baseTime,
+                    currentTime: this.getSalesLineRowEntryTime(conflictCurrent),
+                    conflictReason,
+                    localActor,
+                    remoteActor,
                     localChangedColumns,
                     remoteChangedColumns
+                });
+                conflicts.push(this.buildSalesLineConflict(id, 'update', item.order, conflictCurrent, rowBaseMeta[id], key, {
+                    localChangedColumns,
+                    remoteChangedColumns,
+                    conflictReason
                 }));
                 continue;
             }
@@ -1700,25 +1836,42 @@ var firebaseSync = {
             const key = this.encodeDatabaseKey(id);
             let rejected = false;
             let conflictCurrent = null;
+            let conflictReason = '';
+            let conflictCurrentVersion = 0;
             await this.salesLinesRowsRef.child(key).transaction(current => {
                 conflictCurrent = current;
+                conflictCurrentVersion = this.getSalesLineRowEntryVersion(current);
                 if (options.forceConflictOverwrite) {
                     return null;
                 }
-                const currentVersion = this.getSalesLineRowEntryVersion(current);
-                if (current && currentVersion !== baseVersion) {
+                if (!current) return null;
+                const currentVersion = conflictCurrentVersion;
+                if (current && baseVersion > 0 && currentVersion > baseVersion) {
                     rejected = true;
+                    conflictReason = 'delete-remote-newer';
                     return;
                 }
                 const currentTime = this.getSalesLineRowEntryTime(current);
                 if (baseTime && currentTime && currentTime > baseTime) {
                     rejected = true;
+                    conflictReason = 'delete-remote-newer';
                     return;
                 }
                 return null;
             });
             if (rejected) {
-                conflicts.push(this.buildSalesLineConflict(id, 'delete', null, conflictCurrent, rowBaseMeta[id], key));
+                this.logSalesLineConflictDebug({
+                    rowId: id,
+                    key,
+                    baseVersion,
+                    currentVersion: conflictCurrentVersion,
+                    baseTime,
+                    currentTime: this.getSalesLineRowEntryTime(conflictCurrent),
+                    conflictReason,
+                    localChangedColumns: [],
+                    remoteChangedColumns: []
+                });
+                conflicts.push(this.buildSalesLineConflict(id, 'delete', null, conflictCurrent, rowBaseMeta[id], key, { conflictReason }));
                 continue;
             }
             changedRows += 1;

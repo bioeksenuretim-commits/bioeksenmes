@@ -35,7 +35,7 @@ function renderDashboard() {
         const deliveryDateRaw = order._teslimTarihi;
 
         if (getEditedListChanges(order).length > 0) counts.edited += 1;
-        if (status === 'ürün çıktı') counts.output += 1;
+        if (isTodayOutputStatus(status)) counts.output += 1;
         if (status === 'iptal edildi' || status === 'ürün iptal edildi') counts.cancelled += 1;
         if (isTodayOutputOrder(order)) counts.todayOutputs += 1;
         if (isExtractionKitOrder(order)) counts.extractionKits += 1;
@@ -111,7 +111,7 @@ function getOutputOrders() {
     return allOrders.filter(o => {
         if (!matchesToolbarFilters(o, { includeTerminal: true })) return false;
         const status = normalizeSalesStatus(o['Ürün Durumu']);
-        return status === 'ürün çıktı';
+        return isTodayOutputStatus(status);
     });
 }
 
@@ -167,6 +167,46 @@ function becameOutputToday(order) {
 function isTodayOutputStatus(value) {
     const status = normalizeSalesStatus(value);
     return status === 'ürün çıktı' || status === 'ürün parçalı çıktı';
+}
+
+function formatSalesLineDateTime(value) {
+    const date = value instanceof Date ? value : new Date(value || '');
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleString('tr-TR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+}
+
+function getSalesLineOutputDate(order) {
+    const logs = Array.isArray(editedLog[order?._id]) ? editedLog[order._id] : [];
+    const latest = logs
+        .filter(entry => entry?.col === 'Ürün Durumu' && isTodayOutputStatus(entry.newVal))
+        .map(entry => parseSalesLineChangeDate(entry))
+        .filter(Boolean)
+        .sort((a, b) => b - a)[0];
+
+    if (latest) return formatSalesLineDateTime(latest);
+    if (isTodayOutputStatus(order?.['Ürün Durumu'])) {
+        return formatSalesLineDateTime(order?._sync?.updatedAt || order?._rowUpdatedAt);
+    }
+    return '';
+}
+
+function getPartialOutputQuantity(order) {
+    if (!isPartialOutputStatus(order?.['Ürün Durumu'])) return String(order?.['Miktar'] || '');
+    const outputText = String(order?._partialOutputQty || '').trim();
+    return outputText || String(order?.['Miktar'] || '');
+}
+
+function getDetailQuantityValue(order, type = currentDetailType) {
+    if ((type === 'output' || type === 'todayOutputs') && isPartialOutputStatus(order?.['Ürün Durumu'])) {
+        return getPartialOutputQuantity(order);
+    }
+    return getPartialOutputRemainingQuantity(order);
 }
 
 function isTodayOutputOrder(order) {
@@ -327,6 +367,7 @@ let detailRowsFilterTimer = null;
 const TODAY_OUTPUT_COLUMNS = ['Sipariş Tarihi','Belge No','Müşteri','No','Açıklama','Konum Kodu','Miktar','Ölçü Birimi','Teslim Tarihi','Ürün Durumu'];
 const TODAY_OUTPUT_EXCEL_COLUMNS = TODAY_OUTPUT_COLUMNS.filter(col => col !== 'Ürün Durumu');
 const DEFAULT_DETAIL_COLUMNS = ['Belge No','Müşteri','No','Açıklama','Miktar','Ölçü Birimi','Teslim Tarihi','Lot No','Ürün Durumu'];
+const OUTPUT_DETAIL_COLUMNS = ['Belge No','Müşteri','No','Açıklama','Miktar','Ölçü Birimi','Teslim Tarihi','Lot No','Çıkış Tarihi','Ürün Durumu'];
 
 function getPersonalizedDetailColumns(baseColumns) {
     if (!canUseColumnPersonalization()) return baseColumns;
@@ -369,18 +410,25 @@ function getDetailConfig(type) {
     }
     const baseCols = type === 'todayOutputs'
         ? TODAY_OUTPUT_COLUMNS
-        : DEFAULT_DETAIL_COLUMNS;
-    const cols = getPersonalizedDetailColumns(baseCols);
+        : (type === 'output' ? OUTPUT_DETAIL_COLUMNS : DEFAULT_DETAIL_COLUMNS);
+    let cols = getPersonalizedDetailColumns(baseCols);
+    if (type === 'output' && !cols.includes('Çıkış Tarihi')) {
+        const statusIndex = cols.indexOf('Ürün Durumu');
+        cols = [...cols];
+        if (statusIndex >= 0) cols.splice(statusIndex, 0, 'Çıkış Tarihi');
+        else cols.push('Çıkış Tarihi');
+    }
     const filterCols = isEdited ? [...cols, '__changes'] : cols;
     return { orders, title, isEdited, isTodayOutputs, showHistoryButton, cols, filterCols };
 }
 
-function getDetailCellText(order, col) {
+function getDetailCellText(order, col, type = currentDetailType) {
     if (col === 'Teslim Tarihi') return order._teslimTarihi ? formatDate(order._teslimTarihi) : '';
     if (col === 'Sipariş Tarihi') return order._siparisTarihi ? formatDate(order._siparisTarihi) : '';
+    if (col === 'Çıkış Tarihi') return getSalesLineOutputDate(order);
     if (col === 'Ürün Durumu') return getCanonicalSalesStatus(order['Ürün Durumu'] || '');
     if (col === 'Miktar') {
-        return getPartialOutputRemainingQuantity(order);
+        return getDetailQuantityValue(order, type);
     }
     if (col === '__changes') {
         return getEditedListChanges(order).map(ch => {
@@ -422,7 +470,7 @@ function detailOrderMatchesFilters(order, filterCols) {
     return filterCols.every(col => {
         const selected = filters[col];
         if (!selected || selected.size === 0) return true;
-        return selected.has(getDetailCellText(order, col));
+        return selected.has(getDetailCellText(order, col, currentDetailType));
     });
 }
 
@@ -462,7 +510,7 @@ function openDetail(type) {
     } else {
         visibleOrders.forEach(o => {
             const rowValues = {};
-            filterCols.forEach(c => { rowValues[c] = getDetailCellText(o, c); });
+            filterCols.forEach(c => { rowValues[c] = getDetailCellText(o, c, type); });
             detailRowValuesById.set(String(o._id || ''), rowValues);
             const searchParts = cols.map(c => rowValues[c] || '');
             const editedListChanges = isEdited ? getEditedListChanges(o) : [];
@@ -483,10 +531,13 @@ function openDetail(type) {
                 let val = '';
                 if (c === 'Teslim Tarihi') val = o._teslimTarihi ? formatDate(o._teslimTarihi) : '';
                 else if (c === 'Sipariş Tarihi') val = o._siparisTarihi ? formatDate(o._siparisTarihi) : '';
+                else if (c === 'Çıkış Tarihi') val = esc(getSalesLineOutputDate(o));
                 else if (c === 'Ürün Durumu') val = renderSalesStatusSelect(o, type);
-                else if (c === 'Miktar') val = renderSalesQuantityCell(o);
+                else if (c === 'Miktar') val = type === 'output' || type === 'todayOutputs'
+                    ? esc(getDetailQuantityValue(o, type))
+                    : renderSalesQuantityCell(o);
                 else val = esc(String(o[c] || ''));
-                const editable = c === 'Ürün Durumu' ? '' : ' class="editable" ondblclick="startDetailEdit(this)"';
+                const editable = (c === 'Ürün Durumu' || c === 'Çıkış Tarihi') ? '' : ' class="editable" ondblclick="startDetailEdit(this)"';
                 bHtml += `<td${editable} data-id="${esc(o._id)}" data-col="${esc(c)}">${val}</td>`;
             });
             if (isEdited && editedListChanges.length > 0) {
@@ -526,9 +577,9 @@ function openDetailColFilter(event, col) {
     orders
         .filter(order => activeFiltersForOtherCols.every(item => {
             const selected = filters[item];
-            return !selected || selected.size === 0 || selected.has(getDetailCellText(order, item));
+            return !selected || selected.size === 0 || selected.has(getDetailCellText(order, item, currentDetailType));
         }))
-        .forEach(order => valSet.add(getDetailCellText(order, col)));
+        .forEach(order => valSet.add(getDetailCellText(order, col, currentDetailType)));
     const allValues = Array.from(valSet).sort((a, b) => String(a).localeCompare(String(b), 'tr'));
     const currentFilter = filters[col] || new Set();
     const isFiltered = currentFilter.size > 0;
@@ -734,7 +785,7 @@ function buildTodayOutputExportRows() {
         const row = {};
         TODAY_OUTPUT_EXCEL_COLUMNS.forEach(col => {
             const label = colLabels[col] || col;
-            const value = getDetailCellText(order, col);
+            const value = getDetailCellText(order, col, 'todayOutputs');
             row[label] = shouldWrapExcelColumn(label, value) ? wrapExcelCellText(value, getExcelWrapLineLength(label)) : value;
         });
         return row;
