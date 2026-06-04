@@ -62,7 +62,7 @@ function renderSalesOrderNoDisplay(order, options = {}) {
     return `<span class="sales-order-no-stack">${currentHtml}${previousHtml}</span>`;
 }
 
-function setSalesLineOrderValue(order, col, value, baseMeta = null) {
+function setSalesLineOrderValue(order, col, value, baseMeta = null, options = {}) {
     if (!order) return false;
     const isDateColumn = col === 'Sipariş Tarihi' || col === 'Teslim Tarihi';
     const normalizedDate = isDateColumn ? normalizeSalesLineDateInput(value) : '';
@@ -94,23 +94,7 @@ function setSalesLineOrderValue(order, col, value, baseMeta = null) {
         todayOutputOrderNoIndexCache = null;
         todayOutputOrderNoIndexSignature = '';
     }
-    if (col === 'Ürün Durumu' && normalizeSalesStatus(newDisplay) === 'ürün hazır ve stok toplandı' && typeof isSalesLinesDevEnvironment === 'function' && isSalesLinesDevEnvironment()) {
-        const suggestedQty = String(order._stockCollectedQty || order['Miktar'] || '').trim();
-        const answer = prompt('Kaç adet stok toplandı?', suggestedQty);
-        if (answer === null) return false;
-        const parsedQty = typeof parseSalesQuantityNumber === 'function'
-            ? parseSalesQuantityNumber(answer)
-            : Number(String(answer || '').replace(',', '.'));
-        if (!Number.isFinite(parsedQty) || parsedQty < 0) {
-            showToast('Geçerli bir stok adedi girin.', 'warning');
-            return false;
-        }
-        order._stockCollectedQty = parsedQty;
-        order._stockCollectedAt = new Date().toISOString();
-        const stockUser = typeof getParentSessionUser === 'function' ? (getParentSessionUser() || {}) : {};
-        order._stockCollectedBy = stockUser.paraf || stockUser.fullName || stockUser.uid || '';
-        changedColumns.push('_stockCollectedQty', '_stockCollectedAt', '_stockCollectedBy');
-    }
+    const extraPatch = options && options.extraPatch && typeof options.extraPatch === 'object' ? options.extraPatch : null;
     if (col === 'Ürün Durumu' && normalizeSalesStatus(newDisplay) !== 'ürün hazır ve stok toplandı' && '_stockCollectedQty' in order) {
         delete order._stockCollectedQty;
         delete order._stockCollectedAt;
@@ -118,6 +102,13 @@ function setSalesLineOrderValue(order, col, value, baseMeta = null) {
         changedColumns.push('_stockCollectedQty', '_stockCollectedAt', '_stockCollectedBy');
     }
     order[col] = newDisplay;
+    if (extraPatch) {
+        Object.entries(extraPatch).forEach(([key, patchValue]) => {
+            if (patchValue === undefined) delete order[key];
+            else order[key] = patchValue;
+            changedColumns.push(key);
+        });
+    }
     if (col === 'No') {
         const oldDescription = String(order['Açıklama'] || '');
         const oldUnit = String(order['Ölçü Birimi'] || '');
@@ -184,11 +175,11 @@ function clearPartialOutputMetadata(sourceId) {
     });
 }
 
-function applySalesLineCellChange(sourceId, col, value, baseMeta = null) {
+function applySalesLineCellChange(sourceId, col, value, baseMeta = null, options = {}) {
     const targets = getBulkEditTargetOrders(sourceId);
     let changedCount = 0;
     targets.forEach(order => {
-        if (setSalesLineOrderValue(order, col, value, baseMeta)) changedCount += 1;
+        if (setSalesLineOrderValue(order, col, value, baseMeta, options)) changedCount += 1;
     });
     return changedCount;
 }
@@ -452,7 +443,7 @@ function getBulkEditValue(field) {
     return document.getElementById('bulkEditTextValue')?.value || '';
 }
 
-function applyBulkEditToSelected() {
+async function applyBulkEditToSelected() {
     if (!ensureSalesLinesWritable()) return;
     const field = document.getElementById('bulkEditField')?.value || '';
     const value = getBulkEditValue(field);
@@ -467,10 +458,17 @@ function applyBulkEditToSelected() {
     }
 
     let changedCount = 0;
-    selectedSalesLineIds.forEach(id => {
+    for (const id of selectedSalesLineIds) {
         const order = allOrders.find(item => item._id === id);
-        if (order && setSalesLineOrderValue(order, field, value)) changedCount += 1;
-    });
+        if (!order) continue;
+        let extraPatch = {};
+        if (field === 'Ürün Durumu' && typeof handleFinalProductStockMovement === 'function') {
+            const movement = await handleFinalProductStockMovement(order, order['Ürün Durumu'], value);
+            if (!movement?.ok) continue;
+            extraPatch = movement.patch || {};
+        }
+        if (setSalesLineOrderValue(order, field, value, null, { extraPatch })) changedCount += 1;
+    }
 
     if (changedCount === 0) {
         showToast('Seçili satırlarda değişiklik yok.', 'info');
@@ -645,7 +643,19 @@ async function setCellValue(id, col, value) {
         }
     }
 
-    const changedCount = applySalesLineCellChange(id, col, value);
+    let extraPatch = {};
+    if (col === 'Ürün Durumu' && typeof handleFinalProductStockMovement === 'function') {
+        const order = allOrders.find(item => item._id === id);
+        const movement = await handleFinalProductStockMovement(order, order?.['Ürün Durumu'], value);
+        if (!movement?.ok) {
+            if (!patchRenderedSalesLineRow(id)) applyFilters({ preservePage: true, preserveScroll: true });
+            scheduleFlushQueuedSalesLinesAfterEdit();
+            return;
+        }
+        extraPatch = movement.patch || {};
+    }
+
+    const changedCount = applySalesLineCellChange(id, col, value, null, { extraPatch });
     if (partialOutputQty !== null) {
         applyPartialOutputMetadata(id, partialOutputQty);
     }

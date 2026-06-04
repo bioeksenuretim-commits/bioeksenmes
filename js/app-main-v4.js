@@ -1076,12 +1076,17 @@
         let activeFinalProductFilterPopup = null;
 
         const FINAL_PRODUCT_FILTER_LABELS = {
-            product: 'Mamül',
+            bin: 'Depo Gözü',
+            product: 'Katalog No',
             description: 'Açıklama',
             lot: 'Lot',
-            quantity: 'Toplam',
+            quantity: 'Miktar',
             format: 'Format',
-            status: 'Durum'
+            status: 'Durum',
+            orderNo: 'Sipariş No',
+            salesLineId: 'Satış Satırı ID',
+            updatedAt: 'Son Hareket',
+            updatedBy: 'Kullanıcı'
         };
 
         function parseFinalProductNumber(value) {
@@ -1159,24 +1164,34 @@
 
         function getFinalProductSearchText(row) {
             return [
+                row.bin,
                 row.productNo,
                 row.materialNo,
                 row.rxnName,
                 row.quantityText,
                 row.format,
                 row.status,
+                row.orderNo,
+                row.salesLineId,
+                row.updatedAt,
+                row.updatedBy,
                 row.details?.map(detail => `${detail.orderNo} ${detail.lotNo}`).join(' ')
             ].join(' ').toLocaleLowerCase('tr');
         }
 
         function getFinalProductColumnRawText(row, key) {
             const values = {
+                bin: row.bin,
                 product: [row.productNo, row.materialNo].filter(Boolean).join(' '),
                 description: row.rxnName,
-                lot: (Array.isArray(row.details) ? row.details.map(detail => detail.lotNo).filter(Boolean).join(', ') : ''),
+                lot: row.lotNo || (Array.isArray(row.details) ? row.details.map(detail => detail.lotNo).filter(Boolean).join(', ') : ''),
                 quantity: String(getFinalProductAggregateTotalQty(row)),
                 format: row.format,
-                status: row.status
+                status: row.status,
+                orderNo: row.orderNo,
+                salesLineId: row.salesLineId,
+                updatedAt: row.updatedAt,
+                updatedBy: row.updatedBy
             };
             return String(values[key] || '');
         }
@@ -1204,6 +1219,23 @@
         function renderFinalProductSummary(rows) {
             const container = document.getElementById('finalProductSummary');
             if (!container) return;
+            if (rows.some(row => row.isWarehouseItem)) {
+                const stockQty = rows
+                    .filter(row => row.bin === 'STOK KİTLER')
+                    .reduce((sum, row) => sum + (Number(row.quantityValue) || 0), 0);
+                const reservedQty = rows
+                    .filter(row => row.bin === 'SİPARİŞE ÖZEL KİTLER')
+                    .reduce((sum, row) => sum + (Number(row.quantityValue) || 0), 0);
+                const lotCount = new Set(rows.map(row => `${row.productNo}|${row.lotNo}`).filter(Boolean)).size;
+                const orderCount = rows.filter(row => row.bin === 'SİPARİŞE ÖZEL KİTLER' && row.orderNo).length;
+                container.innerHTML = `
+                    <div class="final-product-metric"><strong>${stockQty}</strong><span>STOK KİTLER</span></div>
+                    <div class="final-product-metric"><strong>${reservedQty}</strong><span>SİPARİŞE ÖZEL KİTLER</span></div>
+                    <div class="final-product-metric"><strong>${lotCount}</strong><span>Lot sayısı</span></div>
+                    <div class="final-product-metric"><strong>${orderCount}</strong><span>Siparişe bağlı</span></div>
+                `;
+                return;
+            }
             const productCount = new Set(rows.map(row => row.productNo || row.materialNo).filter(Boolean)).size;
             const totalQty = rows.reduce((sum, row) => sum + getFinalProductAggregateTotalQty(row), 0);
             const detailCount = rows.reduce((sum, row) => sum + (Array.isArray(row.details) ? row.details.length : 0), 0);
@@ -1234,6 +1266,10 @@
         function renderFinalProductStockKits(rows) {
             const container = document.getElementById('finalProductStockKits');
             if (!container) return;
+            if (rows.some(row => row.isWarehouseItem)) {
+                container.innerHTML = '';
+                return;
+            }
             const details = getFinalProductStockKitDetails(rows);
             if (details.length === 0) {
                 container.innerHTML = '';
@@ -1332,14 +1368,14 @@
             const openKeys = Array.isArray(options.openKeys) ? options.openKeys : getOpenFinalProductDetailKeys();
 
             if (!canViewFinalProductQuantities()) {
-                tbody.innerHTML = '<tr><td colspan="7" class="empty-state-cell">Bu ekran yalnızca dev ortamında admin ve üretim ekibi için açıktır.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="10" class="empty-state-cell">Bu ekran yalnızca dev ortamında admin ve üretim ekibi için açıktır.</td></tr>';
                 renderFinalProductSummary([]);
                 renderFinalProductStockKits([]);
                 return;
             }
 
             if (finalProductQuantitiesLoading) {
-                tbody.innerHTML = '<tr><td colspan="7" class="empty-state-cell">Veri yükleniyor...</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="10" class="empty-state-cell">Veri yükleniyor...</td></tr>';
                 renderFinalProductSummary([]);
                 renderFinalProductStockKits([]);
                 return;
@@ -1350,7 +1386,26 @@
             renderFinalProductStockKits(finalProductQuantityRows);
 
             if (rows.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" class="empty-state-cell">Eşleşen kayıt bulunamadı.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="10" class="empty-state-cell">Eşleşen kayıt bulunamadı.</td></tr>';
+                syncFinalProductHeaderFilterIcons();
+                return;
+            }
+
+            if (rows.some(row => row.isWarehouseItem)) {
+                tbody.innerHTML = rows.map(row => `
+                    <tr class="final-product-summary-row">
+                        <td>${esc(row.bin || '-')}</td>
+                        <td><strong>${esc(row.productNo || '-')}</strong></td>
+                        <td>${esc(row.rxnName || '-')}</td>
+                        <td>${row.lotNo ? `<span class="lot-chip">${esc(row.lotNo)}</span>` : '<span class="cell-subtle">Lot yok</span>'}</td>
+                        <td>${esc(String(row.quantityValue || 0))}</td>
+                        <td>${esc(row.orderNo || '-')}</td>
+                        <td>${esc(row.salesLineId || row.sourceSalesLineId || '-')}</td>
+                        <td>${esc(row.status || row.source || '-')}</td>
+                        <td>${esc(formatFinalProductStockDate(row.updatedAt || row.createdAt || ''))}</td>
+                        <td>${esc(row.updatedBy || row.createdBy || '-')}</td>
+                    </tr>
+                `).join('');
                 syncFinalProductHeaderFilterIcons();
                 return;
             }
@@ -1571,6 +1626,60 @@
                 .sort((a, b) => String(a.productNo || '').localeCompare(String(b.productNo || ''), 'tr'));
         }
 
+        function normalizeFinalProductStockItem(item = {}) {
+            return {
+                id: String(item.id || ''),
+                key: String(item.id || `${item.bin || ''}-${item.productNo || ''}-${item.lotNo || ''}-${item.orderNo || ''}`).replace(/[^a-zA-Z0-9_-]/g, '_'),
+                isWarehouseItem: true,
+                bin: String(item.bin || '').trim(),
+                productNo: String(item.productNo || '').trim(),
+                materialNo: String(item.productNo || '').trim(),
+                rxnName: String(item.description || '').trim(),
+                lotNo: String(item.lotNo || '').trim(),
+                quantityValue: Number(item.quantity) || 0,
+                quantityText: String(Number(item.quantity) || 0),
+                format: '',
+                status: String(item.source || item.status || '').trim(),
+                orderNo: String(item.orderNo || '').trim(),
+                salesLineId: String(item.salesLineId || '').trim(),
+                sourceSalesLineId: String(item.sourceSalesLineId || '').trim(),
+                source: String(item.source || '').trim(),
+                updatedAt: String(item.updatedAt || item.createdAt || '').trim(),
+                createdAt: String(item.createdAt || '').trim(),
+                updatedBy: String(item.updatedBy || item.createdBy || '').trim(),
+                createdBy: String(item.createdBy || '').trim()
+            };
+        }
+
+        function formatFinalProductStockDate(value) {
+            if (!value) return '-';
+            const date = new Date(value);
+            if (isNaN(date.getTime())) return String(value);
+            return date.toLocaleString('tr-TR', {
+                day: '2-digit',
+                month: '2-digit',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        }
+
+        async function loadFinalProductStockRows() {
+            if (!isDevEnvironment() || !isFirebaseAvailable()) return [];
+            const snapshot = await firebase.database().ref(getFirebaseDbPath('finalProductStock/items')).once('value');
+            const items = snapshot.val() || {};
+            return Object.values(items)
+                .map(normalizeFinalProductStockItem)
+                .filter(row => row.productNo || row.lotNo || row.orderNo || row.quantityValue)
+                .sort((a, b) => {
+                    const binCompare = String(a.bin || '').localeCompare(String(b.bin || ''), 'tr');
+                    if (binCompare) return binCompare;
+                    const productCompare = String(a.productNo || '').localeCompare(String(b.productNo || ''), 'tr');
+                    if (productCompare) return productCompare;
+                    return String(a.lotNo || '').localeCompare(String(b.lotNo || ''), 'tr');
+                });
+        }
+
         function toggleFinalProductDetail(key) {
             const row = document.getElementById(`finalProductDetail_${key}`);
             if (!row) return;
@@ -1688,6 +1797,12 @@
             renderFinalProductQuantities();
 
             try {
+                const stockRows = await loadFinalProductStockRows();
+                if (isDevEnvironment()) {
+                    finalProductQuantityRows = stockRows;
+                    return;
+                }
+
                 let sourceOrders = Array.isArray(orders) ? orders : [];
                 let sourceSalesLines = [];
                 if (isFirebaseAvailable() && firebaseSync && typeof firebaseSync.getAll === 'function') {
@@ -2797,7 +2912,7 @@
                 }
                 syncSalesLinesPermissionsToFrame();
             };
-    const salesLinesVersion = '20260604-dev-final-stock-aggregate';
+    const salesLinesVersion = '20260605-final-product-stock-bins';
     frame.src = `./sales-lines.html?v=${salesLinesVersion}${isTestLocalSession() ? '&testLocal=1' : ''}${isDevEnvironment() ? '&env=dev' : ''}`;
             frame.dataset.embeddedReady = 'true';
         }

@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/css/modules.css">
-    <link rel="stylesheet" href="/css/app-main.css?v=20260605-final-product-sales-lines-columns">
+    <link rel="stylesheet" href="/css/app-main.css?v=20260605-final-product-stock-bins">
 
     <script defer src="/js/excel-loader.js?v=20260513-local-vendor"></script>
 
@@ -588,29 +588,20 @@
                     <table class="data-table final-product-table">
                         <thead>
                             <tr>
-                                <th>
-                                    <div class="final-product-th">Mamül <span class="filter-icon" data-final-product-filter="product" onclick="event.stopPropagation();openFinalProductColFilter(event,'product')" title="Filtrele">▼</span></div>
-                                </th>
-                                <th>
-                                    <div class="final-product-th">Açıklama <span class="filter-icon" data-final-product-filter="description" onclick="event.stopPropagation();openFinalProductColFilter(event,'description')" title="Filtrele">▼</span></div>
-                                </th>
-                                <th>
-                                    <div class="final-product-th">Lot <span class="filter-icon" data-final-product-filter="lot" onclick="event.stopPropagation();openFinalProductColFilter(event,'lot')" title="Filtrele">▼</span></div>
-                                </th>
-                                <th>
-                                    <div class="final-product-th">Toplam <span class="filter-icon" data-final-product-filter="quantity" onclick="event.stopPropagation();openFinalProductColFilter(event,'quantity')" title="Filtrele">▼</span></div>
-                                </th>
-                                <th>
-                                    <div class="final-product-th">Format <span class="filter-icon" data-final-product-filter="format" onclick="event.stopPropagation();openFinalProductColFilter(event,'format')" title="Filtrele">▼</span></div>
-                                </th>
-                                <th>
-                                    <div class="final-product-th">Durum <span class="filter-icon" data-final-product-filter="status" onclick="event.stopPropagation();openFinalProductColFilter(event,'status')" title="Filtrele">▼</span></div>
-                                </th>
-                                <th>Detay</th>
+                                <th><div class="final-product-th">Depo Gözü <span class="filter-icon" data-final-product-filter="bin" onclick="event.stopPropagation();openFinalProductColFilter(event,'bin')" title="Filtrele">▼</span></div></th>
+                                <th><div class="final-product-th">Katalog No <span class="filter-icon" data-final-product-filter="product" onclick="event.stopPropagation();openFinalProductColFilter(event,'product')" title="Filtrele">▼</span></div></th>
+                                <th><div class="final-product-th">Açıklama <span class="filter-icon" data-final-product-filter="description" onclick="event.stopPropagation();openFinalProductColFilter(event,'description')" title="Filtrele">▼</span></div></th>
+                                <th><div class="final-product-th">Lot No <span class="filter-icon" data-final-product-filter="lot" onclick="event.stopPropagation();openFinalProductColFilter(event,'lot')" title="Filtrele">▼</span></div></th>
+                                <th><div class="final-product-th">Miktar <span class="filter-icon" data-final-product-filter="quantity" onclick="event.stopPropagation();openFinalProductColFilter(event,'quantity')" title="Filtrele">▼</span></div></th>
+                                <th><div class="final-product-th">Sipariş No <span class="filter-icon" data-final-product-filter="orderNo" onclick="event.stopPropagation();openFinalProductColFilter(event,'orderNo')" title="Filtrele">▼</span></div></th>
+                                <th><div class="final-product-th">Satış Satırı ID <span class="filter-icon" data-final-product-filter="salesLineId" onclick="event.stopPropagation();openFinalProductColFilter(event,'salesLineId')" title="Filtrele">▼</span></div></th>
+                                <th><div class="final-product-th">Durum / Kaynak <span class="filter-icon" data-final-product-filter="status" onclick="event.stopPropagation();openFinalProductColFilter(event,'status')" title="Filtrele">▼</span></div></th>
+                                <th><div class="final-product-th">Son Hareket <span class="filter-icon" data-final-product-filter="updatedAt" onclick="event.stopPropagation();openFinalProductColFilter(event,'updatedAt')" title="Filtrele">▼</span></div></th>
+                                <th><div class="final-product-th">Kullanıcı <span class="filter-icon" data-final-product-filter="updatedBy" onclick="event.stopPropagation();openFinalProductColFilter(event,'updatedBy')" title="Filtrele">▼</span></div></th>
                             </tr>
                         </thead>
                         <tbody id="finalProductTableBody">
-                            <tr><td colspan="7" class="empty-state-cell">Veri yükleniyor...</td></tr>
+                            <tr><td colspan="10" class="empty-state-cell">Veri yükleniyor...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -1262,6 +1253,6 @@
     <div class="toast-container" id="toastContainer"></div>
 
     <script defer src="/js/orders-renderer-v1.js?v=20260601-sales-lines-sync-guard"></script>
-    <script defer src="/js/app-main-v4.js?v=20260605-all-stock-kits"></script>
+    <script defer src="/js/app-main-v4.js?v=20260605-final-product-stock-bins"></script>
 </body>
 </html>
