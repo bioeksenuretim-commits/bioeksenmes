@@ -2332,6 +2332,7 @@
             border: 1px solid var(--border-glass);
             border-radius: 8px;
             background: #fff;
+            overflow: auto;
             max-height: calc(100vh - 310px);
         }
 
@@ -2368,7 +2369,67 @@
             border: 1px solid var(--border-glass);
             border-radius: 8px;
             background: #fff;
-            max-height: 240px;
+            overflow: auto;
+            max-height: min(420px, 42vh);
+        }
+
+        .final-product-table,
+        .final-product-stock-kits-table,
+        .final-product-inner-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            font-size: 0.82rem;
+        }
+
+        .final-product-table,
+        .final-product-stock-kits-table {
+            min-width: 980px;
+        }
+
+        .final-product-table thead,
+        .final-product-stock-kits-table thead {
+            position: sticky;
+            top: 0;
+            z-index: 4;
+        }
+
+        .final-product-table th,
+        .final-product-stock-kits-table th,
+        .final-product-inner-table th {
+            background: var(--bg-page);
+            color: var(--text-secondary);
+            font-size: 0.72rem;
+            font-weight: 700;
+            text-align: left;
+            white-space: nowrap;
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border-glass);
+            border-right: 1px solid var(--border-light);
+        }
+
+        .final-product-table td,
+        .final-product-stock-kits-table td,
+        .final-product-inner-table td {
+            color: var(--text-primary);
+            white-space: nowrap;
+            padding: 9px 12px;
+            border-bottom: 1px solid var(--border-light);
+            border-right: 1px solid var(--border-light);
+        }
+
+        .final-product-table th:last-child,
+        .final-product-table td:last-child,
+        .final-product-stock-kits-table th:last-child,
+        .final-product-stock-kits-table td:last-child,
+        .final-product-inner-table th:last-child,
+        .final-product-inner-table td:last-child {
+            border-right: 0;
+        }
+
+        .final-product-table tbody tr:hover td,
+        .final-product-stock-kits-table tbody tr:hover td {
+            background: var(--bg-hover);
         }
 
         .final-product-stock-kits-table th,
@@ -2414,12 +2475,10 @@
 
         .final-product-detail-row > td {
             background: #f8fafc;
-            padding: 12px !important;
+            padding: 10px !important;
         }
 
         .final-product-inner-table {
-            width: 100%;
-            border-collapse: collapse;
             background: #ffffff;
             border: 1px solid var(--border-glass);
             border-radius: 8px;
@@ -2428,9 +2487,6 @@
 
         .final-product-inner-table th,
         .final-product-inner-table td {
-            padding: 8px 10px;
-            border-bottom: 1px solid var(--border-glass);
-            text-align: left;
             font-size: 0.82rem;
         }
 
