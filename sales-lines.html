@@ -172,6 +172,10 @@
                 <div class="detail-tools">
                     <input id="detailSearch" class="detail-search" type="search" placeholder="Ara..." oninput="scheduleFilterDetailRows()">
                     <span id="detailCount"></span>
+                    <button class="btn btn-sm" id="detailExcelBtn" onclick="exportActiveDetailExcel()" style="display:none;">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        Excel
+                    </button>
                     <button class="btn btn-sm modal-back-btn" onclick="setModalFullscreen('detailOverlay', false)">Geri</button>
                     <button class="modal-window-btn" type="button" onclick="toggleModalFullscreen('detailOverlay')" title="Büyüt / küçült">⛶</button>
                     <button class="btn btn-sm" onclick="closeDetail()">Kapat</button>
@@ -264,7 +268,7 @@
 <script src="/js/sales-lines/state.js?v=20260603-row-patch-small-full-cache"></script>
 <script src="/js/sales-lines/excel-import.js?v=20260601-sales-lines-sync-guard"></script>
 <script src="/js/sales-lines/customer-market.js?v=20260603-row-patch-small-full-cache"></script>
-<script src="/js/sales-lines/modals.js?v=20260603-sales-lines-conflict-complete"></script>
+<script src="/js/sales-lines/modals.js?v=20260604-detail-excel-export"></script>
 <script src="/js/sales-lines/table-render.js?v=20260603-row-patch-small-full-cache"></script>
 <script src="/js/sales-lines/export.js?v=20260601-sales-lines-sync-guard"></script>
 <script src="/js/sales-lines/bootstrap.js?v=20260601-sales-lines-sync-guard"></script>

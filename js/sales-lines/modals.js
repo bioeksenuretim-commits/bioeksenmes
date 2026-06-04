@@ -457,7 +457,89 @@ function getTodayOutputOrderNoIndex() {
     return index;
 }
 
-function renderTodayOutputTools() {}
+function renderTodayOutputTools() {
+    const button = document.getElementById('detailExcelBtn');
+    if (!button) return;
+    const canExportDetail = currentDetailType === 'output' || currentDetailType === 'todayOutputs';
+    button.style.display = canExportDetail ? '' : 'none';
+}
+
+function getDetailRowSearchText(order, cols, type = currentDetailType, isEdited = false) {
+    const searchParts = cols.map(col => getDetailCellText(order, col, type) || '');
+    if (isEdited) {
+        getEditedListChanges(order).forEach(ch => {
+            searchParts.push(colLabels[ch.col] || ch.col || '');
+            searchParts.push(ch.oldVal || '');
+            searchParts.push(ch.newVal || '');
+            searchParts.push(ch.by || '');
+            searchParts.push(ch.at || ch.time || '');
+        });
+    }
+    return searchParts.join(' ');
+}
+
+function getVisibleDetailExportOrders(type, cols, filterCols, isEdited = false) {
+    const { orders } = getDetailConfig(type);
+    const filtered = orders.filter(order => detailOrderMatchesFilters(order, filterCols));
+    const visibleIds = getVisibleDetailSalesLineIds();
+    if (visibleIds.length > 0) {
+        const orderById = new Map(filtered.map(order => [String(order._id || ''), order]));
+        return visibleIds.map(id => orderById.get(String(id))).filter(Boolean);
+    }
+
+    const query = String(detailSearchByType[type] || document.getElementById('detailSearch')?.value || '').trim().toLocaleLowerCase('tr');
+    if (!query) return filtered;
+    return filtered.filter(order => getDetailRowSearchText(order, cols, type, isEdited).toLocaleLowerCase('tr').includes(query));
+}
+
+function buildDetailExportRows(type, orders, cols) {
+    return orders.map(order => {
+        const row = {};
+        cols.forEach(col => {
+            const label = col === 'No' ? 'Katalog No' : (colLabels[col] || col);
+            const value = getDetailCellText(order, col, type);
+            row[label] = shouldWrapExcelColumn(label, value) ? wrapExcelCellText(value, getExcelWrapLineLength(label)) : value;
+        });
+        return row;
+    });
+}
+
+async function exportDetailExcel(type) {
+    const detailType = type || currentDetailType;
+    if (detailType !== 'output' && detailType !== 'todayOutputs') return;
+
+    const { isEdited, cols, filterCols } = getDetailConfig(detailType);
+    const orders = getVisibleDetailExportOrders(detailType, cols, filterCols, isEdited);
+    if (orders.length === 0) {
+        showToast('Dışa aktarılacak veri yok', 'warning');
+        return;
+    }
+
+    const headers = cols.map(col => col === 'No' ? 'Katalog No' : (colLabels[col] || col));
+    const rows = buildDetailExportRows(detailType, orders, cols);
+    const dateKey = new Date().toISOString().slice(0, 10);
+    const filename = detailType === 'todayOutputs'
+        ? `bugun_cikan_urunler_${dateKey}.xlsx`
+        : `cikis_yapilan_siparisler_${dateKey}.xlsx`;
+    const sheetName = detailType === 'todayOutputs' ? 'Bugün Çıkan Ürünler' : 'Çıkış';
+
+    if (await writeStyledExcelFile(headers, rows, sheetName, filename)) {
+        showToast('Excel indirildi', 'success');
+        return;
+    }
+
+    await ensureSheetJs();
+    const ws = XLSX.utils.json_to_sheet(rows);
+    applyExcelWrapStyle(ws, headers, rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    XLSX.writeFile(wb, filename);
+    showToast('Excel indirildi', 'success');
+}
+
+function exportActiveDetailExcel() {
+    return exportDetailExcel(currentDetailType);
+}
 
 function getActiveDetailFilters() {
     if (!currentDetailType) return {};
@@ -781,37 +863,11 @@ function startNewTodayOutputsList() {
 }
 
 function buildTodayOutputExportRows() {
-    return getTodayOutputOrders().map(order => {
-        const row = {};
-        TODAY_OUTPUT_EXCEL_COLUMNS.forEach(col => {
-            const label = colLabels[col] || col;
-            const value = getDetailCellText(order, col, 'todayOutputs');
-            row[label] = shouldWrapExcelColumn(label, value) ? wrapExcelCellText(value, getExcelWrapLineLength(label)) : value;
-        });
-        return row;
-    });
+    return buildDetailExportRows('todayOutputs', getTodayOutputOrders(), TODAY_OUTPUT_EXCEL_COLUMNS);
 }
 
 async function exportTodayOutputsExcel() {
-    const rows = buildTodayOutputExportRows();
-    if (rows.length === 0) {
-        showToast('Dışa aktarılacak bugünün çıkışı yok.', 'warning');
-        return;
-    }
-    const headers = TODAY_OUTPUT_EXCEL_COLUMNS.map(col => colLabels[col] || col);
-    const filename = `bugun_cikan_urunler_${new Date().toISOString().slice(0,10)}.xlsx`;
-    if (await writeStyledExcelFile(headers, rows, 'Bugün Çıkan Ürünler', filename)) {
-        showToast('Excel indirildi', 'success');
-        return;
-    }
-
-    await ensureSheetJs();
-    const ws = XLSX.utils.json_to_sheet(rows);
-    applyExcelWrapStyle(ws, headers, rows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Bugün Çıkan Ürünler');
-    XLSX.writeFile(wb, filename);
-    showToast('Excel indirildi', 'success');
+    return exportDetailExcel('todayOutputs');
 }
 
 function startDetailEdit(td) {

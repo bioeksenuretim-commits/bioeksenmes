@@ -2110,7 +2110,7 @@
                 }
                 syncSalesLinesPermissionsToFrame();
             };
-    const salesLinesVersion = '20260601-dev-env';
+    const salesLinesVersion = '20260604-detail-excel-export';
     frame.src = `./sales-lines.html?v=${salesLinesVersion}${isTestLocalSession() ? '&testLocal=1' : ''}${isDevEnvironment() ? '&env=dev' : ''}`;
             frame.dataset.embeddedReady = 'true';
         }
