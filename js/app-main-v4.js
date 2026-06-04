@@ -1212,7 +1212,7 @@
             const stockKitQty = getFinalProductStockKitDetails(rows).reduce((sum, detail) => sum + (Number(detail.stockCollectedQty) || 0), 0);
             container.innerHTML = `
                 <div class="final-product-metric"><strong>${productCount}</strong><span>Mamül</span></div>
-                <div class="final-product-metric"><strong>${totalQty}</strong><span>Toplam miktar</span></div>
+                <div class="final-product-metric"><strong>${totalQty + stockKitQty}</strong><span>Toplam sayı</span></div>
                 <div class="final-product-metric"><strong>${detailCount}</strong><span>Lot / STS detayı</span></div>
                 <div class="final-product-metric"><strong>${stockKitQty}</strong><span>Stok kit adedi (${stockKitCount})</span></div>
             `;
@@ -1253,7 +1253,7 @@
                                 <th>Açıklama</th>
                                 <th>STS</th>
                                 <th>Lot</th>
-                                <th>Stok Toplanan</th>
+                                <th>Stok</th>
                                 <th>Durum</th>
                             </tr>
                         </thead>
@@ -1277,7 +1277,7 @@
         function renderFinalProductDetailRows(row) {
             const details = Array.isArray(row.details) ? row.details : [];
             if (details.length === 0) {
-                return '<tr><td colspan="7" class="empty-state-cell">Detay bulunamadı.</td></tr>';
+                return '<tr><td colspan="8" class="empty-state-cell">Detay bulunamadı.</td></tr>';
             }
             return details.map(detail => `
                 <tr>
@@ -1287,6 +1287,7 @@
                     <td>
                         <input class="final-product-count-input" type="number" min="0" step="1" value="${esc(detail.stockCollectedQty || '')}" data-final-stock-id="${esc(detail.id)}" placeholder="Stok">
                     </td>
+                    <td>${esc(String(getFinalProductDetailTotalQty(detail)))}</td>
                     <td>${esc(detail.status || '-')}</td>
                     <td>
                         <input class="final-product-count-input" type="number" min="0" step="1" value="${esc(detail.countedQty || '')}" data-final-detail-id="${esc(detail.id)}" placeholder="Sayı">
@@ -1296,6 +1297,12 @@
                     </td>
                 </tr>
             `).join('');
+        }
+
+        function getFinalProductDetailTotalQty(detail) {
+            const orderQty = Number(detail?.quantityValue) || parseFinalProductNumber(detail?.quantityText);
+            const stockQty = Number(detail?.stockCollectedQty) || 0;
+            return orderQty + stockQty;
         }
 
         function renderFinalProductQuantities() {
@@ -1346,8 +1353,9 @@
                                 <tr>
                                     <th>STS</th>
                                     <th>Lot</th>
-                                    <th>Miktar</th>
-                                    <th>Stok Toplanan</th>
+                                    <th>Sipariş</th>
+                                    <th>Stok</th>
+                                    <th>Toplam</th>
                                     <th>Durum</th>
                                     <th>Sayım</th>
                                     <th>İşlem</th>
