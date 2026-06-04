@@ -1347,7 +1347,7 @@
 
             const rows = filterFinalProductRows(finalProductQuantityRows);
             renderFinalProductSummary(rows);
-            renderFinalProductStockKits(rows);
+            renderFinalProductStockKits(finalProductQuantityRows);
 
             if (rows.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="7" class="empty-state-cell">Eşleşen kayıt bulunamadı.</td></tr>';
