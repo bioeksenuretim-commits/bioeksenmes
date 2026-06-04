@@ -1174,7 +1174,7 @@
                 product: [row.productNo, row.materialNo].filter(Boolean).join(' '),
                 description: row.rxnName,
                 lot: (Array.isArray(row.details) ? row.details.map(detail => detail.lotNo).filter(Boolean).join(', ') : ''),
-                quantity: row.quantityText,
+                quantity: String(getFinalProductAggregateTotalQty(row)),
                 format: row.format,
                 status: row.status
             };
@@ -1205,13 +1205,13 @@
             const container = document.getElementById('finalProductSummary');
             if (!container) return;
             const productCount = new Set(rows.map(row => row.productNo || row.materialNo).filter(Boolean)).size;
-            const totalQty = rows.reduce((sum, row) => sum + (Number(row.quantityValue) || 0), 0);
+            const totalQty = rows.reduce((sum, row) => sum + getFinalProductAggregateTotalQty(row), 0);
             const detailCount = rows.reduce((sum, row) => sum + (Array.isArray(row.details) ? row.details.length : 0), 0);
             const stockKitCount = rows.reduce((sum, row) => sum + getFinalProductStockKitDetails([row]).length, 0);
             const stockKitQty = getFinalProductStockKitDetails(rows).reduce((sum, detail) => sum + (Number(detail.stockCollectedQty) || 0), 0);
             container.innerHTML = `
                 <div class="final-product-metric"><strong>${productCount}</strong><span>Mamül</span></div>
-                <div class="final-product-metric"><strong>${totalQty + stockKitQty}</strong><span>Toplam sayı</span></div>
+                <div class="final-product-metric"><strong>${totalQty}</strong><span>Toplam sayı</span></div>
                 <div class="final-product-metric"><strong>${detailCount}</strong><span>Lot / STS detayı</span></div>
                 <div class="final-product-metric"><strong>${stockKitQty}</strong><span>Stok kit adedi (${stockKitCount})</span></div>
             `;
@@ -1303,9 +1303,33 @@
             return orderQty + stockQty;
         }
 
-        function renderFinalProductQuantities() {
+        function getFinalProductAggregateTotalQty(row) {
+            const details = Array.isArray(row?.details) ? row.details : [];
+            if (details.length > 0) {
+                return details.reduce((sum, detail) => sum + getFinalProductDetailTotalQty(detail), 0);
+            }
+            return (Number(row?.quantityValue) || 0) + (Number(row?.stockCollectedQty) || 0);
+        }
+
+        function getOpenFinalProductDetailKeys() {
+            return Array.from(document.querySelectorAll('.final-product-detail-row'))
+                .filter(row => row.style.display !== 'none')
+                .map(row => String(row.id || '').replace(/^finalProductDetail_/, ''))
+                .filter(Boolean);
+        }
+
+        function restoreFinalProductDetailKeys(keys = []) {
+            const keySet = new Set((Array.isArray(keys) ? keys : []).map(String));
+            keySet.forEach(key => {
+                const row = document.getElementById(`finalProductDetail_${key}`);
+                if (row) row.style.display = '';
+            });
+        }
+
+        function renderFinalProductQuantities(options = {}) {
             const tbody = document.getElementById('finalProductTableBody');
             if (!tbody) return;
+            const openKeys = Array.isArray(options.openKeys) ? options.openKeys : getOpenFinalProductDetailKeys();
 
             if (!canViewFinalProductQuantities()) {
                 tbody.innerHTML = '<tr><td colspan="7" class="empty-state-cell">Bu ekran yalnızca dev ortamında admin ve üretim ekibi için açıktır.</td></tr>';
@@ -1339,7 +1363,7 @@
                     </td>
                     <td>${esc(row.rxnName || '-')}</td>
                     <td>${esc((row.details || []).map(detail => detail.lotNo).filter(Boolean).slice(0, 3).join(', ') || '-')}</td>
-                    <td>${esc(row.quantityText || '-')}</td>
+                    <td>${esc(String(getFinalProductAggregateTotalQty(row)))}</td>
                     <td>${esc(row.format || '-')}</td>
                     <td>${esc(row.status || '-')}</td>
                     <td>${esc(String(row.details?.length || 0))}</td>
@@ -1363,6 +1387,7 @@
                     </td>
                 </tr>
             `).join('');
+            restoreFinalProductDetailKeys(openKeys);
             syncFinalProductHeaderFilterIcons();
         }
 
@@ -1613,8 +1638,11 @@
                     }
                 });
                 showToast('Sipariş ve stok miktarı güncellendi.', 'success');
-                renderFinalProductQuantities();
-                refreshFinalProductQuantities();
+                const openKeys = getOpenFinalProductDetailKeys();
+                const scrollX = window.scrollX;
+                const scrollY = window.scrollY;
+                renderFinalProductQuantities({ openKeys });
+                requestAnimationFrame(() => window.scrollTo(scrollX, scrollY));
             } catch (error) {
                 console.error(error);
                 showToast('Miktar kaydedilemedi.', 'error');
