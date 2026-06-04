@@ -1148,7 +1148,6 @@
                 lotNo,
                 quantityValue: parseFinalProductNumber(quantity),
                 quantityText,
-                countedQty: parseFinalProductNumber(row?._finalProductCountQty),
                 stockCollectedQty: parseFinalProductNumber(row?._stockCollectedQty),
                 format: String(row?.['Ölçü Birimi'] || row?.format || '').trim(),
                 status: String(row?.['Ürün Durumu'] || row?.status || '').trim(),
@@ -1277,21 +1276,20 @@
         function renderFinalProductDetailRows(row) {
             const details = Array.isArray(row.details) ? row.details : [];
             if (details.length === 0) {
-                return '<tr><td colspan="8" class="empty-state-cell">Detay bulunamadı.</td></tr>';
+                return '<tr><td colspan="7" class="empty-state-cell">Detay bulunamadı.</td></tr>';
             }
             return details.map(detail => `
                 <tr>
                     <td>${esc(detail.orderNo || '-')}</td>
                     <td>${detail.lotNo ? `<span class="lot-chip">${esc(detail.lotNo)}</span>` : '<span class="cell-subtle">Lot yok</span>'}</td>
-                    <td>${esc(detail.quantityText || '-')}</td>
+                    <td>
+                        <input class="final-product-count-input" type="number" min="0" step="1" value="${esc(detail.quantityValue || '')}" data-final-order-id="${esc(detail.id)}" placeholder="Sipariş">
+                    </td>
                     <td>
                         <input class="final-product-count-input" type="number" min="0" step="1" value="${esc(detail.stockCollectedQty || '')}" data-final-stock-id="${esc(detail.id)}" placeholder="Stok">
                     </td>
                     <td>${esc(String(getFinalProductDetailTotalQty(detail)))}</td>
                     <td>${esc(detail.status || '-')}</td>
-                    <td>
-                        <input class="final-product-count-input" type="number" min="0" step="1" value="${esc(detail.countedQty || '')}" data-final-detail-id="${esc(detail.id)}" placeholder="Sayı">
-                    </td>
                     <td>
                         <button type="button" class="btn btn-sm btn-secondary" onclick="saveFinalProductDetailCount('${esc(detail.id)}')">Kaydet</button>
                     </td>
@@ -1357,7 +1355,6 @@
                                     <th>Stok</th>
                                     <th>Toplam</th>
                                     <th>Durum</th>
-                                    <th>Sayım</th>
                                     <th>İşlem</th>
                                 </tr>
                             </thead>
@@ -1560,9 +1557,9 @@
             const escapedRowId = window.CSS && typeof CSS.escape === 'function'
                 ? CSS.escape(String(rowId))
                 : String(rowId).replace(/"/g, '\\"');
-            const countInput = document.querySelector(`[data-final-detail-id="${escapedRowId}"]`);
+            const orderInput = document.querySelector(`[data-final-order-id="${escapedRowId}"]`);
             const stockInput = document.querySelector(`[data-final-stock-id="${escapedRowId}"]`);
-            const countQty = parseFinalProductNumber(countInput?.value || '');
+            const orderQty = parseFinalProductNumber(orderInput?.value || '');
             const stockQty = parseFinalProductNumber(stockInput?.value || '');
             try {
                 const rowKey = typeof firebaseSync !== 'undefined' && firebaseSync && typeof firebaseSync.encodeDatabaseKey === 'function'
@@ -1587,9 +1584,10 @@
                 }
                 const updatedAt = new Date().toISOString();
                 const updatedBy = currentUser?.paraf || currentUser?.fullName || 'dev';
-                rowJson._finalProductCountQty = countQty;
-                rowJson._finalProductCountUpdatedAt = updatedAt;
-                rowJson._finalProductCountUpdatedBy = updatedBy;
+                rowJson['Miktar'] = orderQty;
+                rowJson.quantity = orderQty;
+                rowJson._finalProductOrderQtyUpdatedAt = updatedAt;
+                rowJson._finalProductOrderQtyUpdatedBy = updatedBy;
                 rowJson._stockCollectedQty = stockQty;
                 rowJson._stockCollectedAt = updatedAt;
                 rowJson._stockCollectedBy = updatedBy;
@@ -1602,23 +1600,24 @@
                 if (wrapper.data && typeof wrapper.data === 'object') updates.data = rowJson;
                 await rowRef.update(updates);
                 updateFinalProductDetailLocal(rowId, {
-                    countedQty: countQty,
+                    orderQty,
                     stockCollectedQty: stockQty,
                     sourcePatch: {
-                        _finalProductCountQty: countQty,
-                        _finalProductCountUpdatedAt: updatedAt,
-                        _finalProductCountUpdatedBy: updatedBy,
+                        'Miktar': orderQty,
+                        quantity: orderQty,
+                        _finalProductOrderQtyUpdatedAt: updatedAt,
+                        _finalProductOrderQtyUpdatedBy: updatedBy,
                         _stockCollectedQty: stockQty,
                         _stockCollectedAt: updatedAt,
                         _stockCollectedBy: updatedBy
                     }
                 });
-                showToast('Sayım ve stok miktarı güncellendi.', 'success');
+                showToast('Sipariş ve stok miktarı güncellendi.', 'success');
                 renderFinalProductQuantities();
                 refreshFinalProductQuantities();
             } catch (error) {
                 console.error(error);
-                showToast('Sayım kaydedilemedi.', 'error');
+                showToast('Miktar kaydedilemedi.', 'error');
             }
         }
 
@@ -1630,9 +1629,11 @@
                 const details = row.details.map(detail => {
                     if (String(detail.id || '') !== id) return detail;
                     changed = true;
+                    const orderQty = Number(patch.orderQty) || 0;
                     return {
                         ...detail,
-                        countedQty: Number(patch.countedQty) || 0,
+                        quantityValue: orderQty,
+                        quantityText: String(orderQty),
                         stockCollectedQty: Number(patch.stockCollectedQty) || 0,
                         source: {
                             ...(detail.source || {}),
@@ -1640,7 +1641,9 @@
                         }
                     };
                 });
-                return changed ? { ...row, details } : row;
+                if (!changed) return row;
+                const quantityValue = details.reduce((sum, detail) => sum + (Number(detail.quantityValue) || 0), 0);
+                return { ...row, details, quantityValue, quantityText: String(quantityValue) };
             });
         }
 
