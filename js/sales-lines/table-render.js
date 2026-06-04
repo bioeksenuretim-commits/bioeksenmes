@@ -81,7 +81,9 @@ function setSalesLineOrderValue(order, col, value, baseMeta = null) {
         : isDateColumn
         ? normalizedDate
         : rawDisplay;
-    const oldComparable = col === CUSTOMER_MARKET_COLUMN && oldDisplay.trim() === '-' ? '' : oldDisplay.trim();
+    const oldComparable = isDateColumn
+        ? normalizeSalesLineDateInput(oldDisplay)
+        : (col === CUSTOMER_MARKET_COLUMN && oldDisplay.trim() === '-' ? '' : oldDisplay.trim());
     if (oldComparable === newDisplay.trim()) return false;
 
     recordSalesLineChange(order._id, col, oldDisplay, newDisplay || (col === CUSTOMER_MARKET_COLUMN ? '-' : ''));
@@ -139,11 +141,11 @@ function setSalesLineOrderValue(order, col, value, baseMeta = null) {
         changedColumns.push('_partialOutputQty', '_partialOutputOriginalQty');
     }
     if (col === 'Sipariş Tarihi') {
-        order._siparisTarihi = parseDate(normalizedDate);
+        order._siparisTarihi = normalizedDate;
         changedColumns.push('_siparisTarihi');
     }
     if (col === 'Teslim Tarihi') {
-        order._teslimTarihi = parseDate(normalizedDate);
+        order._teslimTarihi = normalizedDate;
         changedColumns.push('_teslimTarihi');
     }
     refreshSalesLineSearchIndex(order);

@@ -338,6 +338,20 @@ function sanitizeBelgeAciklamasi(order, rawRow = null, rowKeys = []) {
 }
 
 function toDateOnlyString(date) {
+    if (typeof date === 'string') {
+        const value = date.trim();
+        if (!value) return null;
+        const match = value.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+        if (match) {
+            return [
+                match[1],
+                String(Number(match[2])).padStart(2, '0'),
+                String(Number(match[3])).padStart(2, '0')
+            ].join('-');
+        }
+        if (typeof parseDate === 'function') return toDateOnlyString(parseDate(value));
+        return null;
+    }
     if (!(date instanceof Date) || isNaN(date.getTime())) return null;
     return [
         date.getFullYear(),
@@ -539,8 +553,8 @@ function deserializeSalesLineOrder(order) {
         ...migratedOrder,
         _linkedRequestIds: Array.isArray(migratedOrder._linkedRequestIds) ? migratedOrder._linkedRequestIds : [],
         _previousBelgeNos: normalizePreviousSalesOrderNos(migratedOrder._previousBelgeNos),
-        _siparisTarihi: migratedOrder._siparisTarihi ? parseDate(migratedOrder._siparisTarihi) : null,
-        _teslimTarihi: migratedOrder._teslimTarihi ? parseDate(migratedOrder._teslimTarihi) : null
+        _siparisTarihi: toDateOnlyString(migratedOrder._siparisTarihi),
+        _teslimTarihi: toDateOnlyString(migratedOrder._teslimTarihi)
     });
 }
 

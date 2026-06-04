@@ -140,8 +140,8 @@ function processWorkbook(workbook, weekNum) {
             order._externalKey = buildSalesLineExternalKey(order);
             order._excelKey = order._externalKey;
             order._id = buildStableSalesLineId(order, idx);
-            order._siparisTarihi = parseDate(order['Sipariş Tarihi'] || '');
-            order._teslimTarihi = parseDate(order['Teslim Tarihi'] || '');
+            order._siparisTarihi = toDateOnlyString(parseDate(order['Sipariş Tarihi'] || ''));
+            order._teslimTarihi = toDateOnlyString(parseDate(order['Teslim Tarihi'] || ''));
 
             const hasData = (order['Belge No'] || order['No'] || order['Açıklama'] || order['Müşteri']);
             if (hasData) allOrders.push(order);
@@ -182,6 +182,7 @@ function parseDate(val) {
 }
 
 function formatDate(d) {
+    if (typeof d === 'string') d = parseDate(d);
     if (!d || !(d instanceof Date) || isNaN(d.getTime())) return '';
     return String(d.getDate()).padStart(2,'0') + '.' + String(d.getMonth()+1).padStart(2,'0') + '.' + d.getFullYear();
 }
