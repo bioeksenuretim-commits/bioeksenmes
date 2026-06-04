@@ -2277,6 +2277,165 @@
             margin-top: 0;
         }
 
+        .final-product-shell {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .final-product-header {
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 16px;
+        }
+
+        .dev-data-notice {
+            border: 1px solid #fbbf24;
+            background: #fffbeb;
+            color: #92400e;
+            border-radius: 8px;
+            padding: 10px 12px;
+            font-size: 0.86rem;
+        }
+
+        .final-product-toolbar {
+            display: block;
+        }
+
+        .final-product-summary {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(120px, 1fr));
+            gap: 10px;
+        }
+
+        .final-product-metric {
+            border: 1px solid var(--border-glass);
+            background: var(--bg-card);
+            border-radius: 8px;
+            padding: 12px;
+        }
+
+        .final-product-metric strong {
+            display: block;
+            font-size: 1.25rem;
+            line-height: 1.1;
+            color: var(--text-primary);
+        }
+
+        .final-product-metric span,
+        .cell-subtle {
+            color: var(--text-secondary);
+            font-size: 0.78rem;
+        }
+
+        .final-product-table-wrap {
+            border: 1px solid var(--border-glass);
+            border-radius: 8px;
+            background: #fff;
+            max-height: calc(100vh - 310px);
+        }
+
+        .final-product-table th,
+        .final-product-table td {
+            vertical-align: top;
+        }
+
+        .final-product-th {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+
+        .final-product-table .filter-icon {
+            cursor: pointer;
+            opacity: 0.45;
+            color: var(--text-secondary);
+            font-size: 0.72rem;
+            line-height: 1;
+            user-select: none;
+        }
+
+        .final-product-table .filter-icon:hover,
+        .final-product-table .filter-icon.active-filter {
+            opacity: 1;
+            color: var(--accent-primary);
+        }
+
+        .final-product-summary-row {
+            cursor: pointer;
+        }
+
+        .final-product-summary-row:hover {
+            background: var(--bg-hover);
+        }
+
+        .final-product-detail-row > td {
+            background: #f8fafc;
+            padding: 12px !important;
+        }
+
+        .final-product-inner-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #ffffff;
+            border: 1px solid var(--border-glass);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .final-product-inner-table th,
+        .final-product-inner-table td {
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--border-glass);
+            text-align: left;
+            font-size: 0.82rem;
+        }
+
+        .final-product-count-input {
+            width: 86px;
+            height: 30px;
+            border: 1px solid var(--border-glass);
+            border-radius: 6px;
+            padding: 4px 8px;
+            font: inherit;
+        }
+
+        .final-product-col-filter-popup .cfp-header {
+            gap: 8px;
+        }
+
+        .final-product-col-filter-popup .cfp-header strong {
+            color: var(--text-primary);
+            font-size: 0.84rem;
+        }
+
+        .lot-chip {
+            display: inline-flex;
+            align-items: center;
+            min-height: 24px;
+            padding: 2px 8px;
+            border-radius: 999px;
+            background: #ecfdf5;
+            color: #047857;
+            font-weight: 700;
+            font-size: 0.78rem;
+        }
+
+        .empty-state-cell {
+            text-align: center;
+            color: var(--text-secondary);
+            padding: 24px !important;
+        }
+
+        @media (max-width: 720px) {
+            .final-product-toolbar,
+            .final-product-summary {
+                grid-template-columns: 1fr;
+            }
+        }
+
         .section {
             animation: fadeIn 0.18s ease;
         }

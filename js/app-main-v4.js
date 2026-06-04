@@ -766,6 +766,15 @@
             return !!getUserPermissions().canViewProductTree;
         }
 
+        function canViewFinalProductQuantities() {
+            if (!isDevEnvironment()) return false;
+            if (isTestLocalSession()) return true;
+            if (!hasMatchingFirebaseAuthSession()) return false;
+            const role = String(currentUser?.role || '').trim().toLowerCase();
+            const department = normalizeDepartmentName(currentUser?.department);
+            return role === 'admin' || role === 'dev' || department === 'uretim';
+        }
+
         function canDeleteData() {
             return !!isAdmin();
         }
@@ -894,7 +903,7 @@
 
             const menuWrapper = document.getElementById('menuWrapper');
             if (menuWrapper) {
-                menuWrapper.style.display = isAdmin() ? 'block' : 'none';
+                menuWrapper.style.display = (isAdmin() || canViewFinalProductQuantities()) ? 'block' : 'none';
             }
 
             const productTreeNavTab = document.querySelector('.nav-tab[data-tab="product-tree-tools"]');
@@ -911,6 +920,25 @@
             if (backupToolsNavTab) {
                 backupToolsNavTab.style.display = isAdmin() ? '' : 'none';
             }
+
+            const finalProductQuantitiesNavTab = document.querySelector('.nav-tab[data-tab="final-product-quantities"]');
+            if (finalProductQuantitiesNavTab) {
+                finalProductQuantitiesNavTab.style.display = canViewFinalProductQuantities() ? '' : 'none';
+            }
+
+            const finalProductQuantitiesQuickBtn = document.getElementById('quickFinalProductQuantitiesBtn');
+            if (finalProductQuantitiesQuickBtn) {
+                finalProductQuantitiesQuickBtn.style.display = canViewFinalProductQuantities() ? '' : 'none';
+            }
+
+            const adminQuickBtn = document.getElementById('quickAdminBtn');
+            if (adminQuickBtn) adminQuickBtn.style.display = isAdmin() ? '' : 'none';
+
+            const backupQuickBtn = document.getElementById('quickBackupBtn');
+            if (backupQuickBtn) backupQuickBtn.style.display = isAdmin() ? '' : 'none';
+
+            const productTreeQuickBtn = document.getElementById('quickProductTreeBtn');
+            if (productTreeQuickBtn) productTreeQuickBtn.style.display = isAdmin() ? '' : 'none';
 
             const dashboardNavTab = document.querySelector('.nav-tab[data-tab="dashboard"]');
             if (dashboardNavTab) {
@@ -945,6 +973,11 @@
             const adminToolsSection = document.getElementById('admin-tools');
             if (adminToolsSection) {
                 adminToolsSection.style.display = isAdmin() ? '' : 'none';
+            }
+
+            const finalProductQuantitiesSection = document.getElementById('final-product-quantities');
+            if (finalProductQuantitiesSection) {
+                finalProductQuantitiesSection.style.display = canViewFinalProductQuantities() ? '' : 'none';
             }
 
             const dashboardSection = document.getElementById('dashboard');
@@ -1036,6 +1069,495 @@
 
         window.copyLiveDataToDevEnvironment = copyLiveDataToDevEnvironment;
         window.clearDevEnvironmentData = clearDevEnvironmentData;
+
+        let finalProductQuantityRows = [];
+        let finalProductQuantitiesLoading = false;
+        let finalProductColFilters = {};
+        let activeFinalProductFilterPopup = null;
+
+        const FINAL_PRODUCT_FILTER_LABELS = {
+            product: 'Mamül',
+            description: 'Açıklama',
+            quantity: 'Toplam',
+            format: 'Format',
+            status: 'Durum'
+        };
+
+        function parseFinalProductNumber(value) {
+            if (value === null || value === undefined) return 0;
+            if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+            const normalized = String(value).trim().replace(/\./g, '').replace(',', '.');
+            const parsed = parseFloat(normalized);
+            return Number.isFinite(parsed) ? parsed : 0;
+        }
+
+        function getFinalProductQuantityValue(order) {
+            const candidates = [
+                { label: 'Gerçekleşen Rack', value: order?.producedQty },
+                { label: 'Gerçekleşen Rxn', value: order?.actualRxnQty },
+                { label: 'Gerçekleşen Well', value: order?.actualWellQty },
+                { label: 'Planlanan Rack', value: order?.quantity },
+                { label: 'Planlanan Rxn', value: order?.plannedRxnQty },
+                { label: 'Planlanan Well', value: order?.plannedWellQty }
+            ];
+            const item = candidates.find(candidate => {
+                const raw = candidate.value;
+                return raw !== null && raw !== undefined && String(raw).trim() !== '';
+            });
+            if (!item) return '-';
+            return `${item.value} ${item.label.replace('Gerçekleşen ', '').replace('Planlanan ', '')}`;
+        }
+
+        function normalizeFinalProductOrder(order) {
+            const orderNo = String(order?.orderNo || order?.salesOrderNo || order?.documentNo || '').trim();
+            const lotNo = String(order?.lotNo || order?.lot || '').trim();
+            return {
+                id: String(order?.id || order?._id || ''),
+                sourceType: 'Talep',
+                orderNo,
+                productNo: String(order?.catalogNo || order?.materialNo || '').trim(),
+                materialNo: String(order?.materialNo || '').trim(),
+                rxnName: String(order?.rxnName || order?.description || '').trim(),
+                lotNo,
+                quantityText: getFinalProductQuantityValue(order),
+                format: normalizeOrderFormat(order?.format || ''),
+                status: normalizeOrderStatus(order?.status || ''),
+                plannedEndDate: String(order?.plannedEndDate || '').trim(),
+                deliveryDate: String(order?.deliveryDate || '').trim(),
+                source: order
+            };
+        }
+
+        function normalizeFinalProductSalesLine(row) {
+            const orderNo = String(row?.['Belge No'] || row?.orderNo || row?.documentNo || '').trim();
+            const lotNo = String(row?.['Lot No'] || row?.lotNo || '').trim();
+            const quantity = row?.['Miktar'] ?? row?.quantity ?? '';
+            const unit = String(row?.['Ölçü Birimi'] || row?.unit || '').trim();
+            const quantityText = quantity !== null && quantity !== undefined && String(quantity).trim() !== ''
+                ? `${quantity}${unit ? ` ${unit}` : ''}`
+                : '-';
+
+            return {
+                id: String(row?._id || row?.id || ''),
+                sourceType: 'Satış satırı',
+                orderNo,
+                productNo: String(row?.['No'] || row?.catalogNo || row?.materialNo || '').trim(),
+                materialNo: String(row?.materialNo || '').trim(),
+                rxnName: String(row?.['Açıklama'] || row?.rxnName || row?.description || '').trim(),
+                lotNo,
+                quantityValue: parseFinalProductNumber(quantity),
+                quantityText,
+                countedQty: parseFinalProductNumber(row?._finalProductCountQty),
+                stockCollectedQty: parseFinalProductNumber(row?._stockCollectedQty),
+                format: String(row?.['Ölçü Birimi'] || row?.format || '').trim(),
+                status: String(row?.['Ürün Durumu'] || row?.status || '').trim(),
+                plannedEndDate: '',
+                deliveryDate: String(row?.['Teslim Tarihi'] || row?.deliveryDate || '').trim(),
+                source: row
+            };
+        }
+
+        function getFinalProductSearchText(row) {
+            return [
+                row.productNo,
+                row.materialNo,
+                row.rxnName,
+                row.quantityText,
+                row.format,
+                row.status,
+                row.details?.map(detail => `${detail.orderNo} ${detail.lotNo}`).join(' ')
+            ].join(' ').toLocaleLowerCase('tr');
+        }
+
+        function getFinalProductColumnRawText(row, key) {
+            const values = {
+                product: [row.productNo, row.materialNo].filter(Boolean).join(' '),
+                description: row.rxnName,
+                quantity: row.quantityText,
+                format: row.format,
+                status: row.status
+            };
+            return String(values[key] || '');
+        }
+
+        function getFinalProductColumnText(row, key) {
+            return getFinalProductColumnRawText(row, key).toLocaleLowerCase('tr');
+        }
+
+        function finalProductRowMatchesColumnFilters(row) {
+            return Object.entries(finalProductColFilters).every(([key, selectedValues]) => {
+                if (!(selectedValues instanceof Set) || selectedValues.size === 0) return true;
+                return selectedValues.has(getFinalProductColumnRawText(row, key));
+            });
+        }
+
+        function filterFinalProductRows(rows) {
+            const query = String(document.getElementById('finalProductSearch')?.value || '').trim().toLocaleLowerCase('tr');
+            return rows.filter(row => {
+                if (query && !getFinalProductSearchText(row).includes(query)) return false;
+                if (!finalProductRowMatchesColumnFilters(row)) return false;
+                return true;
+            });
+        }
+
+        function renderFinalProductSummary(rows) {
+            const container = document.getElementById('finalProductSummary');
+            if (!container) return;
+            const productCount = new Set(rows.map(row => row.productNo || row.materialNo).filter(Boolean)).size;
+            const totalQty = rows.reduce((sum, row) => sum + (Number(row.quantityValue) || 0), 0);
+            const detailCount = rows.reduce((sum, row) => sum + (Array.isArray(row.details) ? row.details.length : 0), 0);
+            container.innerHTML = `
+                <div class="final-product-metric"><strong>${productCount}</strong><span>Mamül</span></div>
+                <div class="final-product-metric"><strong>${totalQty}</strong><span>Toplam miktar</span></div>
+                <div class="final-product-metric"><strong>${detailCount}</strong><span>Lot / STS detayı</span></div>
+                <div class="final-product-metric"><strong>${rows.length}</strong><span>Satır</span></div>
+            `;
+        }
+
+        function renderFinalProductDetailRows(row) {
+            const details = Array.isArray(row.details) ? row.details : [];
+            if (details.length === 0) {
+                return '<tr><td colspan="7" class="empty-state-cell">Detay bulunamadı.</td></tr>';
+            }
+            return details.map(detail => `
+                <tr>
+                    <td>${esc(detail.orderNo || '-')}</td>
+                    <td>${detail.lotNo ? `<span class="lot-chip">${esc(detail.lotNo)}</span>` : '<span class="cell-subtle">Lot yok</span>'}</td>
+                    <td>${esc(detail.quantityText || '-')}</td>
+                    <td>${esc(detail.stockCollectedQty ? String(detail.stockCollectedQty) : '-')}</td>
+                    <td>${esc(detail.status || '-')}</td>
+                    <td>
+                        <input class="final-product-count-input" type="number" min="0" step="1" value="${esc(detail.countedQty || '')}" data-final-detail-id="${esc(detail.id)}" placeholder="Sayı">
+                    </td>
+                    <td>
+                        <button type="button" class="btn btn-sm btn-secondary" onclick="saveFinalProductDetailCount('${esc(detail.id)}')">Kaydet</button>
+                    </td>
+                </tr>
+            `).join('');
+        }
+
+        function renderFinalProductQuantities() {
+            const tbody = document.getElementById('finalProductTableBody');
+            if (!tbody) return;
+
+            if (!canViewFinalProductQuantities()) {
+                tbody.innerHTML = '<tr><td colspan="6" class="empty-state-cell">Bu ekran yalnızca dev ortamında admin ve üretim ekibi için açıktır.</td></tr>';
+                renderFinalProductSummary([]);
+                return;
+            }
+
+            if (finalProductQuantitiesLoading) {
+                tbody.innerHTML = '<tr><td colspan="6" class="empty-state-cell">Veri yükleniyor...</td></tr>';
+                renderFinalProductSummary([]);
+                return;
+            }
+
+            const rows = filterFinalProductRows(finalProductQuantityRows);
+            renderFinalProductSummary(rows);
+
+            if (rows.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="empty-state-cell">Eşleşen kayıt bulunamadı.</td></tr>';
+                syncFinalProductHeaderFilterIcons();
+                return;
+            }
+
+            tbody.innerHTML = rows.map(row => `
+                <tr class="final-product-summary-row" onclick="toggleFinalProductDetail('${esc(row.key)}')">
+                    <td>
+                        <strong>${esc(row.productNo || row.materialNo || '-')}</strong>
+                        ${row.materialNo && row.materialNo !== row.productNo ? `<div class="cell-subtle">${esc(row.materialNo)}</div>` : ''}
+                    </td>
+                    <td>${esc(row.rxnName || '-')}</td>
+                    <td>${esc(row.quantityText || '-')}</td>
+                    <td>${esc(row.format || '-')}</td>
+                    <td>${esc(row.status || '-')}</td>
+                    <td>${esc(String(row.details?.length || 0))}</td>
+                </tr>
+                <tr class="final-product-detail-row" id="finalProductDetail_${esc(row.key)}" style="display:none;">
+                    <td colspan="6">
+                        <table class="final-product-inner-table">
+                            <thead>
+                                <tr>
+                                    <th>STS</th>
+                                    <th>Lot</th>
+                                    <th>Miktar</th>
+                                    <th>Stok Toplanan</th>
+                                    <th>Durum</th>
+                                    <th>Sayım</th>
+                                    <th>İşlem</th>
+                                </tr>
+                            </thead>
+                            <tbody>${renderFinalProductDetailRows(row)}</tbody>
+                        </table>
+                    </td>
+                </tr>
+            `).join('');
+            syncFinalProductHeaderFilterIcons();
+        }
+
+        function getFinalProductRowsForFilterOptions(ignoreKey) {
+            return finalProductQuantityRows.filter(row => {
+                const query = String(document.getElementById('finalProductSearch')?.value || '').trim().toLocaleLowerCase('tr');
+                if (query && !getFinalProductSearchText(row).includes(query)) return false;
+                return Object.entries(finalProductColFilters).every(([key, selectedValues]) => {
+                    if (key === ignoreKey) return true;
+                    if (!(selectedValues instanceof Set) || selectedValues.size === 0) return true;
+                    return selectedValues.has(getFinalProductColumnRawText(row, key));
+                });
+            });
+        }
+
+        function openFinalProductColFilter(event, key) {
+            closeFinalProductColFilter();
+            const th = event.target.closest('th');
+            if (!th) return;
+            const rect = th.getBoundingClientRect();
+            const currentFilter = finalProductColFilters[key] instanceof Set ? finalProductColFilters[key] : new Set();
+            const isFiltered = currentFilter.size > 0;
+            const values = Array.from(new Set(
+                getFinalProductRowsForFilterOptions(key).map(row => getFinalProductColumnRawText(row, key))
+            )).sort((a, b) => String(a).localeCompare(String(b), 'tr'));
+
+            const popup = document.createElement('div');
+            popup.className = 'orders-col-filter-popup final-product-col-filter-popup';
+            popup.id = 'finalProductColFilterPopup';
+            popup.dataset.col = key;
+            popup.dataset.isFiltered = isFiltered ? '1' : '0';
+            popup.dataset.searchPrimed = '0';
+
+            let left = rect.left;
+            if (left + 280 > window.innerWidth) left = Math.max(8, window.innerWidth - 290);
+            popup.style.top = `${rect.bottom + 4}px`;
+            popup.style.left = `${left}px`;
+
+            popup.innerHTML = `
+                <div class="cfp-header">
+                    <strong>${esc(FINAL_PRODUCT_FILTER_LABELS[key] || key)}</strong>
+                    <input class="cfp-search" type="text" placeholder="Ara..." oninput="filterFinalProductPopupSearch(this.value)">
+                </div>
+                <div class="cfp-list" id="finalProductCfpList">
+                    <div class="cfp-item cfp-select-all">
+                        <input type="checkbox" id="finalProductCfpSelectAll" onchange="toggleFinalProductPopupAll(this.checked)" ${!isFiltered ? 'checked' : ''}>
+                        <label for="finalProductCfpSelectAll">Tümünü Seç</label>
+                    </div>
+                    ${values.map((value, index) => {
+                        const checked = !isFiltered || currentFilter.has(value);
+                        const display = value || '(Boş)';
+                        return `<div class="cfp-item" data-val="${esc(value)}">
+                            <input type="checkbox" id="finalProductCfp_${index}" data-value="${esc(value)}" ${checked ? 'checked' : ''} onchange="syncFinalProductPopupSelectAllState()">
+                            <label for="finalProductCfp_${index}" title="${esc(display)}">${esc(display)}</label>
+                        </div>`;
+                    }).join('')}
+                </div>
+                <div class="cfp-footer">
+                    <button class="btn btn-sm btn-primary" onclick="applyFinalProductColFilter('${key}')">Uygula</button>
+                    <button class="btn btn-sm" onclick="clearFinalProductColFilter('${key}')">Temizle</button>
+                </div>
+            `;
+
+            document.body.appendChild(popup);
+            activeFinalProductFilterPopup = key;
+            popup.querySelector('.cfp-search')?.focus();
+            syncFinalProductPopupSelectAllState();
+        }
+
+        function filterFinalProductPopupSearch(query) {
+            const q = String(query || '').toLocaleLowerCase('tr');
+            const popup = document.getElementById('finalProductColFilterPopup');
+            document.querySelectorAll('#finalProductCfpList .cfp-item[data-val]').forEach(item => {
+                const value = String(item.dataset.val || '').toLocaleLowerCase('tr');
+                const label = String(item.querySelector('label')?.textContent || '').toLocaleLowerCase('tr');
+                item.style.display = value.includes(q) || label.includes(q) ? '' : 'none';
+            });
+
+            if (q && popup && popup.dataset.isFiltered !== '1' && popup.dataset.searchPrimed !== '1') {
+                document.querySelectorAll('#finalProductCfpList .cfp-item[data-val] input[type=checkbox]').forEach(cb => {
+                    cb.checked = false;
+                });
+                popup.dataset.searchPrimed = '1';
+            }
+            syncFinalProductPopupSelectAllState();
+        }
+
+        function toggleFinalProductPopupAll(checked) {
+            document.querySelectorAll('#finalProductCfpList .cfp-item[data-val] input[type=checkbox]').forEach(cb => {
+                if (cb.closest('.cfp-item')?.style.display !== 'none') cb.checked = checked;
+            });
+            syncFinalProductPopupSelectAllState();
+        }
+
+        function syncFinalProductPopupSelectAllState() {
+            const selectAll = document.getElementById('finalProductCfpSelectAll');
+            if (!selectAll) return;
+            const visibleCheckboxes = Array.from(document.querySelectorAll('#finalProductCfpList .cfp-item[data-val] input[type=checkbox]'))
+                .filter(cb => cb.closest('.cfp-item')?.style.display !== 'none');
+            const checkedCount = visibleCheckboxes.filter(cb => cb.checked).length;
+            selectAll.checked = visibleCheckboxes.length > 0 && checkedCount === visibleCheckboxes.length;
+            selectAll.indeterminate = checkedCount > 0 && checkedCount < visibleCheckboxes.length;
+        }
+
+        function applyFinalProductColFilter(key) {
+            const searchValue = String(document.querySelector('#finalProductColFilterPopup .cfp-search')?.value || '').trim();
+            const allCheckboxes = Array.from(document.querySelectorAll('#finalProductCfpList .cfp-item[data-val] input[type=checkbox]'));
+            const checkboxes = allCheckboxes.filter(cb => !searchValue || cb.closest('.cfp-item')?.style.display !== 'none');
+            const checked = searchValue ? new Set(finalProductColFilters[key] || []) : new Set();
+            checkboxes.forEach(cb => {
+                if (cb.checked) checked.add(cb.dataset.value || '');
+                else checked.delete(cb.dataset.value || '');
+            });
+
+            if (checked.size === 0 || (!searchValue && checked.size === checkboxes.length)) {
+                delete finalProductColFilters[key];
+            } else {
+                finalProductColFilters[key] = checked;
+            }
+
+            closeFinalProductColFilter();
+            renderFinalProductQuantities();
+        }
+
+        function clearFinalProductColFilter(key) {
+            delete finalProductColFilters[key];
+            closeFinalProductColFilter();
+            renderFinalProductQuantities();
+        }
+
+        function closeFinalProductColFilter() {
+            document.getElementById('finalProductColFilterPopup')?.remove();
+            activeFinalProductFilterPopup = null;
+        }
+
+        function syncFinalProductHeaderFilterIcons() {
+            document.querySelectorAll('[data-final-product-filter]').forEach(icon => {
+                const key = icon.dataset.finalProductFilter;
+                const active = finalProductColFilters[key] instanceof Set && finalProductColFilters[key].size > 0;
+                icon.classList.toggle('active-filter', active);
+            });
+        }
+
+        window.openFinalProductColFilter = openFinalProductColFilter;
+        window.filterFinalProductPopupSearch = filterFinalProductPopupSearch;
+        window.toggleFinalProductPopupAll = toggleFinalProductPopupAll;
+        window.syncFinalProductPopupSelectAllState = syncFinalProductPopupSelectAllState;
+        window.applyFinalProductColFilter = applyFinalProductColFilter;
+        window.clearFinalProductColFilter = clearFinalProductColFilter;
+
+        function isFinalProductReadyStatus(status) {
+            const normalized = String(status || '').trim().toLocaleLowerCase('tr');
+            return normalized === 'ürün hazır' || normalized === 'ürün hazır ve stok toplandı';
+        }
+
+        function buildFinalProductAggregateRows(detailRows) {
+            const byProduct = new Map();
+            detailRows.filter(row => isFinalProductReadyStatus(row.status)).forEach(row => {
+                const key = String(row.productNo || row.materialNo || row.rxnName || 'unknown').trim() || 'unknown';
+                if (!byProduct.has(key)) {
+                    byProduct.set(key, {
+                        key: key.replace(/[^a-zA-Z0-9_-]/g, '_'),
+                        productNo: row.productNo,
+                        materialNo: row.materialNo,
+                        rxnName: row.rxnName,
+                        quantityValue: 0,
+                        quantityText: '0',
+                        format: row.format,
+                        status: 'Ürün Hazır',
+                        details: []
+                    });
+                }
+                const aggregate = byProduct.get(key);
+                aggregate.quantityValue += Number(row.quantityValue) || 0;
+                aggregate.details.push(row);
+                if (!aggregate.rxnName && row.rxnName) aggregate.rxnName = row.rxnName;
+                if (!aggregate.format && row.format) aggregate.format = row.format;
+            });
+            return Array.from(byProduct.values())
+                .map(row => ({ ...row, quantityText: String(row.quantityValue) }))
+                .sort((a, b) => String(a.productNo || '').localeCompare(String(b.productNo || ''), 'tr'));
+        }
+
+        function toggleFinalProductDetail(key) {
+            const row = document.getElementById(`finalProductDetail_${key}`);
+            if (!row) return;
+            row.style.display = row.style.display === 'none' ? '' : 'none';
+        }
+
+        async function saveFinalProductDetailCount(rowId) {
+            if (!canViewFinalProductQuantities() || !isDevEnvironment() || !isFirebaseAvailable() || !rowId) return;
+            const escapedRowId = window.CSS && typeof CSS.escape === 'function'
+                ? CSS.escape(String(rowId))
+                : String(rowId).replace(/"/g, '\\"');
+            const input = document.querySelector(`[data-final-detail-id="${escapedRowId}"]`);
+            const qty = parseFinalProductNumber(input?.value || '');
+            try {
+                const rowRef = firebase.database().ref(getFirebaseDbPath(`salesLines/v2/rows/${rowId}`));
+                const snapshot = await rowRef.once('value');
+                const wrapper = snapshot.val() || {};
+                const rowJson = wrapper.rowJson ? JSON.parse(wrapper.rowJson) : {};
+                rowJson._finalProductCountQty = qty;
+                rowJson._finalProductCountUpdatedAt = new Date().toISOString();
+                rowJson._finalProductCountUpdatedBy = currentUser?.paraf || currentUser?.fullName || 'dev';
+                await rowRef.update({
+                    rowJson: JSON.stringify(rowJson),
+                    rowUpdatedAt: rowJson._finalProductCountUpdatedAt,
+                    rowUpdatedBy: rowJson._finalProductCountUpdatedBy,
+                    rowUpdatedByUid: currentUser?.uid || null
+                });
+                showToast('Sayım güncellendi.', 'success');
+                refreshFinalProductQuantities();
+            } catch (error) {
+                console.error(error);
+                showToast('Sayım kaydedilemedi.', 'error');
+            }
+        }
+
+        window.toggleFinalProductDetail = toggleFinalProductDetail;
+        window.saveFinalProductDetailCount = saveFinalProductDetailCount;
+
+        async function refreshFinalProductQuantities() {
+            if (!canViewFinalProductQuantities()) {
+                renderFinalProductQuantities();
+                return;
+            }
+
+            finalProductQuantitiesLoading = true;
+            renderFinalProductQuantities();
+
+            try {
+                let sourceOrders = Array.isArray(orders) ? orders : [];
+                let sourceSalesLines = [];
+                if (isFirebaseAvailable() && firebaseSync && typeof firebaseSync.getAll === 'function') {
+                    const [remoteOrders, salesLinesPayload] = await Promise.all([
+                        firebaseSync.getAll(),
+                        typeof firebaseSync.getSalesLinesPayload === 'function'
+                            ? firebaseSync.getSalesLinesPayload()
+                            : Promise.resolve(null)
+                    ]);
+                    if (Array.isArray(remoteOrders)) sourceOrders = remoteOrders;
+                    if (Array.isArray(salesLinesPayload?.allOrders)) sourceSalesLines = salesLinesPayload.allOrders;
+                }
+
+                const salesRows = sourceSalesLines
+                    .map(normalizeFinalProductSalesLine)
+                    .filter(row => row.orderNo || row.productNo || row.materialNo || row.rxnName || row.lotNo);
+
+                const orderRows = sourceOrders
+                    .filter(order => order && order.sourceSystem !== 'sales-lines')
+                    .map(normalizeFinalProductOrder)
+                    .filter(row => row.orderNo || row.productNo || row.materialNo || row.rxnName || row.lotNo);
+
+                finalProductQuantityRows = buildFinalProductAggregateRows(salesRows.length > 0 ? salesRows : orderRows);
+            } catch (error) {
+                console.error('Son ürün miktarları okunamadı:', error);
+                showToast('Son ürün miktarları okunamadı.', 'error');
+                finalProductQuantityRows = [];
+            } finally {
+                finalProductQuantitiesLoading = false;
+                renderFinalProductQuantities();
+            }
+        }
+
+        window.refreshFinalProductQuantities = refreshFinalProductQuantities;
+        window.renderFinalProductQuantities = renderFinalProductQuantities;
 
         async function approveUser(userId) {
             if (!isAdmin()) return;
@@ -2110,7 +2632,7 @@
                 }
                 syncSalesLinesPermissionsToFrame();
             };
-    const salesLinesVersion = '20260604-detail-excel-export';
+    const salesLinesVersion = '20260604-dev-final-stock-aggregate';
     frame.src = `./sales-lines.html?v=${salesLinesVersion}${isTestLocalSession() ? '&testLocal=1' : ''}${isDevEnvironment() ? '&env=dev' : ''}`;
             frame.dataset.embeddedReady = 'true';
         }
@@ -2153,6 +2675,9 @@
                 document.getElementById('product-tree-tools').classList.add('active');
                 if (typeof renderManagedProductsList === 'function') renderManagedProductsList();
                 if (typeof updateProductTreeStats === 'function') updateProductTreeStats();
+            } else if (activeTabFilter === 'final-product-quantities' && canViewFinalProductQuantities()) {
+                document.getElementById('final-product-quantities').classList.add('active');
+                refreshFinalProductQuantities();
             } else if (activeTabFilter === 'sales-lines') {
                 document.getElementById('sales-lines').classList.add('active');
             } else if (activeTabFilter === 'qc-view') {
@@ -4717,6 +5242,10 @@
         window.syncOrdersPopupSelectAllState = syncOrdersPopupSelectAllState;
 
         document.addEventListener('click', (event) => {
+            if (activeFinalProductFilterPopup && !event.target.closest('#finalProductColFilterPopup') && !event.target.closest('[data-final-product-filter]')) {
+                closeFinalProductColFilter();
+            }
+
             const filterButton = event.target.closest('#orders [data-filter-button]');
             if (filterButton) {
                 event.preventDefault();
@@ -5224,7 +5753,7 @@
         }
 
         function goToUtilitySection(tabId, targetId = null, expandManualProduct = false) {
-            if (!isAdmin()) {
+            if (!isAdmin() && !(tabId === 'final-product-quantities' && canViewFinalProductQuantities())) {
                 return;
             }
             switchTab(tabId);
@@ -5259,6 +5788,10 @@
                 tabId = canViewOrders() ? 'orders' : 'sales-lines';
             }
 
+            if (!canViewFinalProductQuantities() && tabId === 'final-product-quantities') {
+                tabId = canViewOrders() ? 'orders' : 'sales-lines';
+            }
+
             document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
 
@@ -5286,6 +5819,10 @@
                 activeTabFilter = null;
                 if (typeof renderManagedProductsList === 'function') renderManagedProductsList();
                 if (typeof updateProductTreeStats === 'function') updateProductTreeStats();
+            } else if (tabId === 'final-product-quantities') {
+                document.getElementById('final-product-quantities').classList.add('active');
+                activeTabFilter = null;
+                refreshFinalProductQuantities();
             } else if (tabId === 'sales-lines') {
                 document.getElementById('sales-lines').classList.add('active');
                 initEmbeddedSalesLinesFrame();

@@ -206,6 +206,7 @@ function getCanonicalSalesStatus(value) {
     if (status === 'planlandı' || status === 'ürün planlandı') return 'Ürün Planlandı';
     if (status === 'ürün hazır, son ürün qc bekliyor') return 'Ürün Hazır, Son Ürün QC Bekliyor';
     if (status === 'ürün hazır') return 'Ürün Hazır';
+    if (status === 'ürün hazır ve stok toplandı') return 'Ürün Hazır ve Stok Toplandı';
     if (status === 'ürün stoktan verilecek') return 'Ürün Stoktan Verilecek';
     if (status === 'ürün lojistikte') return 'Ürün Lojistikte';
     if (status === 'ürün çıktı') return 'Ürün Çıktı';
@@ -220,8 +221,16 @@ function isTerminalSalesStatus(value) {
     return status === 'iptal edildi' || status === 'ürün iptal edildi' || status === 'ürün çıktı';
 }
 
+function isSalesLinesDevEnvironment() {
+    return typeof getSalesLinesDbPrefix === 'function' && String(getSalesLinesDbPrefix() || '').replace(/^\/+/, '') === 'dev/';
+}
+
 function getSalesStatusOptions() {
-    return ['', 'Ürün Planlandı', 'Ürün Hazır, Son Ürün QC Bekliyor', 'Ürün Hazır', 'Ürün Stoktan Verilecek', 'Ürün Lojistikte', 'Ürün Çıktı', 'Ürünün Çekmesi Yapıldı', 'Ürün Parçalı Çıktı', 'Ürün İptal Edildi'];
+    const options = ['', 'Ürün Planlandı', 'Ürün Hazır, Son Ürün QC Bekliyor', 'Ürün Hazır', 'Ürün Stoktan Verilecek', 'Ürün Lojistikte', 'Ürün Çıktı', 'Ürünün Çekmesi Yapıldı', 'Ürün Parçalı Çıktı', 'Ürün İptal Edildi'];
+    if (isSalesLinesDevEnvironment()) {
+        options.splice(4, 0, 'Ürün Hazır ve Stok Toplandı');
+    }
+    return options;
 }
 
 function renderSalesStatusSelect(order, refreshType = '') {

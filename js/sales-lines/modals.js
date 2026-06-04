@@ -10,6 +10,41 @@ function scheduleDashboardRender(options = {}) {
     }, Number(options.delay || 400));
 }
 
+function parseSalesLineDateValue(value) {
+    if (!value) return null;
+
+    if (value instanceof Date && !isNaN(value.getTime())) {
+        return value;
+    }
+
+    const str = String(value).trim();
+    if (!str) return null;
+
+    let match = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (match) {
+        return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+    }
+
+    match = str.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+    if (match) {
+        return new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
+    }
+
+    match = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (match) {
+        return new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
+    }
+
+    const parsed = new Date(str);
+    return isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function getSalesLineDayStart(value) {
+    const date = parseSalesLineDateValue(value);
+    if (!date) return null;
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
 function renderDashboard() {
     if (dashboardRenderTimer) {
         clearTimeout(dashboardRenderTimer);
@@ -32,7 +67,7 @@ function renderDashboard() {
         if (!matchesToolbarFilters(order, { includeTerminal: true })) return;
         const status = normalizeSalesStatus(order['Ürün Durumu']);
         const isTerminal = isTerminalSalesStatus(status);
-        const deliveryDateRaw = order._teslimTarihi;
+        const deliveryDateRaw = order._teslimTarihi || order['Teslim Tarihi'];
 
         if (getEditedListChanges(order).length > 0) counts.edited += 1;
         if (isTodayOutputStatus(status)) counts.output += 1;
@@ -41,7 +76,8 @@ function renderDashboard() {
         if (isExtractionKitOrder(order)) counts.extractionKits += 1;
 
         if (!isTerminal && deliveryDateRaw) {
-            const deliveryDate = new Date(deliveryDateRaw.getFullYear(), deliveryDateRaw.getMonth(), deliveryDateRaw.getDate());
+            const deliveryDate = getSalesLineDayStart(deliveryDateRaw);
+            if (!deliveryDate) return;
             const deliveryTime = deliveryDate.getTime();
             if (deliveryTime < todayStart.getTime()) counts.overdue += 1;
             else if (deliveryTime <= oneWeekLater.getTime()) counts.upcoming += 1;
@@ -80,9 +116,10 @@ function getOverdueOrders() {
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     return allOrders.filter(o => {
         if (!matchesToolbarFilters(o, { includeTerminal: true })) return false;
-        const d = o._teslimTarihi;
+        const d = o._teslimTarihi || o['Teslim Tarihi'];
         if (!d) return false;
-        const deliveryDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+        const deliveryDate = getSalesLineDayStart(d);
+        if (!deliveryDate) return false;
         if (isTerminalSalesStatus(o['Ürün Durumu'])) return false;
         return deliveryDate.getTime() < todayStart.getTime();
     });
@@ -95,9 +132,10 @@ function getUpcomingOrders() {
 
     return allOrders.filter(o => {
         if (!matchesToolbarFilters(o, { includeTerminal: true })) return false;
-        const d = o._teslimTarihi;
+        const d = o._teslimTarihi || o['Teslim Tarihi'];
         if (!d) return false;
-        const deliveryDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+        const deliveryDate = getSalesLineDayStart(d);
+        if (!deliveryDate) return false;
         if (isTerminalSalesStatus(o['Ürün Durumu'])) return false;
         return deliveryDate.getTime() >= todayStart.getTime() && deliveryDate.getTime() <= oneWeekLater.getTime();
     });

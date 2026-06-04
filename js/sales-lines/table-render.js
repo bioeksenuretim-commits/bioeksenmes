@@ -6,6 +6,19 @@ function getSalesLineDisplayValue(order, col) {
     return String(order[col] || '');
 }
 
+function normalizeSalesLineDateInput(value) {
+    const parsed = typeof parseSalesLineDateValue === 'function'
+        ? parseSalesLineDateValue(value)
+        : (typeof parseDate === 'function' ? parseDate(value) : null);
+    if (!(parsed instanceof Date) || isNaN(parsed.getTime())) return '';
+    if (typeof toDateOnlyString === 'function') return toDateOnlyString(parsed) || '';
+    return [
+        parsed.getFullYear(),
+        String(parsed.getMonth() + 1).padStart(2, '0'),
+        String(parsed.getDate()).padStart(2, '0')
+    ].join('-');
+}
+
 const SALES_LINE_MANUAL_FIELD_COLUMNS = new Set([
     'Miktar',
     'Ölçü Birimi',
@@ -51,6 +64,12 @@ function renderSalesOrderNoDisplay(order, options = {}) {
 
 function setSalesLineOrderValue(order, col, value, baseMeta = null) {
     if (!order) return false;
+    const isDateColumn = col === 'Sipariş Tarihi' || col === 'Teslim Tarihi';
+    const normalizedDate = isDateColumn ? normalizeSalesLineDateInput(value) : '';
+    if (isDateColumn && !normalizedDate) {
+        showToast('Tarih formatı geçersiz', 'warning');
+        return false;
+    }
     const rowBaseMeta = {
         ...(baseMeta || getSalesLineRowSyncMeta(order)),
         rowSnapshot: cloneSalesLinePlainValue(order)
@@ -59,6 +78,8 @@ function setSalesLineOrderValue(order, col, value, baseMeta = null) {
     const rawDisplay = String(value ?? '').trim();
     const newDisplay = col === CUSTOMER_MARKET_COLUMN
         ? (CUSTOMER_MARKET_OPTIONS.includes(rawDisplay) ? rawDisplay : '')
+        : isDateColumn
+        ? normalizedDate
         : rawDisplay;
     const oldComparable = col === CUSTOMER_MARKET_COLUMN && oldDisplay.trim() === '-' ? '' : oldDisplay.trim();
     if (oldComparable === newDisplay.trim()) return false;
@@ -70,6 +91,29 @@ function setSalesLineOrderValue(order, col, value, baseMeta = null) {
         updatePreviousSalesOrderNos(order, oldDisplay, newDisplay);
         todayOutputOrderNoIndexCache = null;
         todayOutputOrderNoIndexSignature = '';
+    }
+    if (col === 'Ürün Durumu' && normalizeSalesStatus(newDisplay) === 'ürün hazır ve stok toplandı' && typeof isSalesLinesDevEnvironment === 'function' && isSalesLinesDevEnvironment()) {
+        const suggestedQty = String(order._stockCollectedQty || order['Miktar'] || '').trim();
+        const answer = prompt('Kaç adet stok toplandı?', suggestedQty);
+        if (answer === null) return false;
+        const parsedQty = typeof parseSalesQuantityNumber === 'function'
+            ? parseSalesQuantityNumber(answer)
+            : Number(String(answer || '').replace(',', '.'));
+        if (!Number.isFinite(parsedQty) || parsedQty < 0) {
+            showToast('Geçerli bir stok adedi girin.', 'warning');
+            return false;
+        }
+        order._stockCollectedQty = parsedQty;
+        order._stockCollectedAt = new Date().toISOString();
+        const stockUser = typeof getParentSessionUser === 'function' ? (getParentSessionUser() || {}) : {};
+        order._stockCollectedBy = stockUser.paraf || stockUser.fullName || stockUser.uid || '';
+        changedColumns.push('_stockCollectedQty', '_stockCollectedAt', '_stockCollectedBy');
+    }
+    if (col === 'Ürün Durumu' && normalizeSalesStatus(newDisplay) !== 'ürün hazır ve stok toplandı' && '_stockCollectedQty' in order) {
+        delete order._stockCollectedQty;
+        delete order._stockCollectedAt;
+        delete order._stockCollectedBy;
+        changedColumns.push('_stockCollectedQty', '_stockCollectedAt', '_stockCollectedBy');
     }
     order[col] = newDisplay;
     if (col === 'No') {
@@ -95,11 +139,11 @@ function setSalesLineOrderValue(order, col, value, baseMeta = null) {
         changedColumns.push('_partialOutputQty', '_partialOutputOriginalQty');
     }
     if (col === 'Sipariş Tarihi') {
-        order._siparisTarihi = parseDate(newDisplay);
+        order._siparisTarihi = parseDate(normalizedDate);
         changedColumns.push('_siparisTarihi');
     }
     if (col === 'Teslim Tarihi') {
-        order._teslimTarihi = parseDate(newDisplay);
+        order._teslimTarihi = parseDate(normalizedDate);
         changedColumns.push('_teslimTarihi');
     }
     refreshSalesLineSearchIndex(order);
@@ -174,7 +218,7 @@ function getSalesLineRowClass(order) {
     const status = normalizeSalesStatus(order['Ürün Durumu']);
     let rowClass = '';
     if (status === 'ürün hazır, son ürün qc bekliyor') rowClass = 'row-qc-wait';
-    else if (status === 'ürün hazır') rowClass = 'row-ready';
+    else if (status === 'ürün hazır' || status === 'ürün hazır ve stok toplandı') rowClass = 'row-ready';
     else if (status === 'ürün stoktan verilecek') rowClass = 'row-stock';
     else if (status === 'planlandı' || status === 'ürün planlandı') rowClass = 'row-planned';
     else if (status === 'iptal edildi' || status === 'ürün iptal edildi') rowClass = 'row-cancelled';
@@ -401,8 +445,7 @@ function getBulkEditValue(field) {
     if (field === 'Sipariş Tarihi' || field === 'Teslim Tarihi') {
         const raw = document.getElementById('bulkEditDateValue')?.value || '';
         if (!raw) return '';
-        const [year, month, day] = raw.split('-');
-        return `${day}.${month}.${year}`;
+        return normalizeSalesLineDateInput(raw);
     }
     return document.getElementById('bulkEditTextValue')?.value || '';
 }
@@ -412,6 +455,10 @@ function applyBulkEditToSelected() {
     const field = document.getElementById('bulkEditField')?.value || '';
     const value = getBulkEditValue(field);
     if (!field) return;
+    if ((field === 'Sipariş Tarihi' || field === 'Teslim Tarihi') && !value) {
+        showToast('Tarih formatı geçersiz', 'warning');
+        return;
+    }
     if (!String(value || '').trim()) {
         showToast('Lütfen uygulanacak değeri girin.', 'warning');
         return;

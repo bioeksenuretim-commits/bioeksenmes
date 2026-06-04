@@ -1,4 +1,4 @@
-const APP_BUILD_VERSION = '20260604-detail-excel-export';
+const APP_BUILD_VERSION = '20260604-dev-final-stock-aggregate';
 window.APP_BUILD_VERSION = APP_BUILD_VERSION;
 console.log('APP_BUILD v4 aktif', APP_BUILD_VERSION);
 /**

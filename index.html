@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/css/modules.css">
-    <link rel="stylesheet" href="/css/app-main.css?v=20260602-header-notifications">
+    <link rel="stylesheet" href="/css/app-main.css?v=20260604-dev-final-stock-aggregate">
 
     <script defer src="/js/excel-loader.js?v=20260513-local-vendor"></script>
 
@@ -29,7 +29,7 @@
     <script defer src="/js/advanced-filters.js?v=20260601-sales-lines-sync-guard"></script>
     <script defer src="/js/product-tree-excel-v4.js?v=20260601-sales-lines-sync-guard"></script>
     <script defer src="/js/product-tree-ui.js?v=20260601-sales-lines-sync-guard"></script>
-    <script defer src="/js/init-v4.js?v=20260604-detail-excel-export"></script>
+    <script defer src="/js/init-v4.js?v=20260604-dev-final-stock-aggregate"></script>
 </head>
 
 <body>
@@ -177,6 +177,7 @@
                 <button class="nav-tab" data-tab="backup-tools">Veri Yedekleme</button>
                 <button class="nav-tab" data-tab="admin-tools">Admin Paneli</button>
                 <button class="nav-tab" data-tab="product-tree-tools">Ürün Ağacı</button>
+                <button class="nav-tab" data-tab="final-product-quantities">Son Ürün Miktarları</button>
                 <button class="nav-tab" data-tab="sales-lines">Satış satırları</button>
                 <button class="nav-tab" data-tab="qc-view">QC Bekleyen</button>
                 <button class="nav-tab" data-tab="islemde-view">İşlemde</button>
@@ -217,6 +218,7 @@
                             <button type="button" class="menu-action" id="quickBackupBtn" onclick="goToUtilitySection('backup-tools')">Veri Yedekleme & Dışa Aktarma</button>
                             <button type="button" class="menu-action" id="quickAdminBtn" onclick="goToUtilitySection('admin-tools')">Admin Paneli - Kullanıcı Yönetimi</button>
                             <button type="button" class="menu-action" id="quickProductTreeBtn" onclick="goToUtilitySection('product-tree-tools')">Ürün Ağacı Yönetimi</button>
+                            <button type="button" class="menu-action" id="quickFinalProductQuantitiesBtn" onclick="goToUtilitySection('final-product-quantities')">Son Ürün Miktarları</button>
                         </div>
                     </div>
                 </div>
@@ -562,6 +564,55 @@
                     <h2 class="card-title">Ürün Ağacı Yönetimi</h2>
                 </div>
                 <div id="productTreeToolsMount"></div>
+            </div>
+        </section>
+
+        <section id="final-product-quantities" class="section utility-section">
+            <div class="glass-card utility-shell final-product-shell">
+                <div class="card-header final-product-header">
+                    <div>
+                        <h2 class="card-title">Son Ürün Miktarları</h2>
+                        <p class="section-subtle">Dev ortamındaki satış satırlarından mamül, lot ve STS sipariş bağlantılarını gösterir.</p>
+                    </div>
+                    <button type="button" class="btn btn-secondary btn-sm" onclick="refreshFinalProductQuantities()">Yenile</button>
+                </div>
+                <div class="dev-data-notice">
+                    Bu ekran şu anda yalnızca dev ortamında çalışır. Okunan veriler <strong>dev</strong> alanından gelir.
+                </div>
+                <div class="final-product-toolbar">
+                    <input type="search" id="finalProductSearch" class="form-input" placeholder="Ürün, lot, STS veya açıklama ara" oninput="renderFinalProductQuantities()">
+                </div>
+                <div class="final-product-summary" id="finalProductSummary"></div>
+                <div class="table-scroll final-product-table-wrap">
+                    <table class="data-table final-product-table">
+                        <thead>
+                            <tr>
+                                <th>
+                                    <div class="final-product-th">Mamül <span class="filter-icon" data-final-product-filter="product" onclick="event.stopPropagation();openFinalProductColFilter(event,'product')" title="Filtrele">▼</span></div>
+                                </th>
+                                <th>
+                                    <div class="final-product-th">Açıklama <span class="filter-icon" data-final-product-filter="description" onclick="event.stopPropagation();openFinalProductColFilter(event,'description')" title="Filtrele">▼</span></div>
+                                </th>
+                                <th>
+                                    <div class="final-product-th">Lot <span class="filter-icon" data-final-product-filter="lot" onclick="event.stopPropagation();openFinalProductColFilter(event,'lot')" title="Filtrele">▼</span></div>
+                                </th>
+                                <th>
+                                    <div class="final-product-th">Toplam <span class="filter-icon" data-final-product-filter="quantity" onclick="event.stopPropagation();openFinalProductColFilter(event,'quantity')" title="Filtrele">▼</span></div>
+                                </th>
+                                <th>
+                                    <div class="final-product-th">Format <span class="filter-icon" data-final-product-filter="format" onclick="event.stopPropagation();openFinalProductColFilter(event,'format')" title="Filtrele">▼</span></div>
+                                </th>
+                                <th>
+                                    <div class="final-product-th">Durum <span class="filter-icon" data-final-product-filter="status" onclick="event.stopPropagation();openFinalProductColFilter(event,'status')" title="Filtrele">▼</span></div>
+                                </th>
+                                <th>Detay</th>
+                            </tr>
+                        </thead>
+                        <tbody id="finalProductTableBody">
+                            <tr><td colspan="6" class="empty-state-cell">Veri yükleniyor...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
             </div>
         </section>
 
@@ -1210,6 +1261,6 @@
     <div class="toast-container" id="toastContainer"></div>
 
     <script defer src="/js/orders-renderer-v1.js?v=20260601-sales-lines-sync-guard"></script>
-    <script defer src="/js/app-main-v4.js?v=20260604-detail-excel-export"></script>
+    <script defer src="/js/app-main-v4.js?v=20260604-dev-final-stock-aggregate"></script>
 </body>
 </html>
