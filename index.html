@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/css/modules.css">
-    <link rel="stylesheet" href="/css/app-main.css?v=20260604-dev-final-stock-aggregate">
+    <link rel="stylesheet" href="/css/app-main.css?v=20260605-final-stock-kits-edit">
 
     <script defer src="/js/excel-loader.js?v=20260513-local-vendor"></script>
 
@@ -583,6 +583,7 @@
                     <input type="search" id="finalProductSearch" class="form-input" placeholder="Ürün, lot, STS veya açıklama ara" oninput="renderFinalProductQuantities()">
                 </div>
                 <div class="final-product-summary" id="finalProductSummary"></div>
+                <div class="final-product-stock-kits" id="finalProductStockKits"></div>
                 <div class="table-scroll final-product-table-wrap">
                     <table class="data-table final-product-table">
                         <thead>
@@ -609,7 +610,7 @@
                             </tr>
                         </thead>
                         <tbody id="finalProductTableBody">
-                            <tr><td colspan="6" class="empty-state-cell">Veri yükleniyor...</td></tr>
+                            <tr><td colspan="7" class="empty-state-cell">Veri yükleniyor...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -1261,6 +1262,6 @@
     <div class="toast-container" id="toastContainer"></div>
 
     <script defer src="/js/orders-renderer-v1.js?v=20260601-sales-lines-sync-guard"></script>
-    <script defer src="/js/app-main-v4.js?v=20260604-dev-final-stock-aggregate"></script>
+    <script defer src="/js/app-main-v4.js?v=20260605-final-stock-kits-edit"></script>
 </body>
 </html>

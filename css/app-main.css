@@ -2335,6 +2335,47 @@
             max-height: calc(100vh - 310px);
         }
 
+        .final-product-stock-kits {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .final-product-stock-kits:empty {
+            display: none;
+        }
+
+        .final-product-stock-kits-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .final-product-stock-kits-header h3 {
+            margin: 0;
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .final-product-stock-kits-header span {
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+        }
+
+        .final-product-stock-kits-table-wrap {
+            border: 1px solid var(--border-glass);
+            border-radius: 8px;
+            background: #fff;
+            max-height: 240px;
+        }
+
+        .final-product-stock-kits-table th,
+        .final-product-stock-kits-table td {
+            vertical-align: top;
+        }
+
         .final-product-table th,
         .final-product-table td {
             vertical-align: top;

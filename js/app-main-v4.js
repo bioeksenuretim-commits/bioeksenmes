@@ -1078,6 +1078,7 @@
         const FINAL_PRODUCT_FILTER_LABELS = {
             product: 'Mamül',
             description: 'Açıklama',
+            lot: 'Lot',
             quantity: 'Toplam',
             format: 'Format',
             status: 'Durum'
@@ -1173,6 +1174,7 @@
             const values = {
                 product: [row.productNo, row.materialNo].filter(Boolean).join(' '),
                 description: row.rxnName,
+                lot: (Array.isArray(row.details) ? row.details.map(detail => detail.lotNo).filter(Boolean).join(', ') : ''),
                 quantity: row.quantityText,
                 format: row.format,
                 status: row.status
@@ -1206,11 +1208,69 @@
             const productCount = new Set(rows.map(row => row.productNo || row.materialNo).filter(Boolean)).size;
             const totalQty = rows.reduce((sum, row) => sum + (Number(row.quantityValue) || 0), 0);
             const detailCount = rows.reduce((sum, row) => sum + (Array.isArray(row.details) ? row.details.length : 0), 0);
+            const stockKitCount = rows.reduce((sum, row) => sum + getFinalProductStockKitDetails([row]).length, 0);
+            const stockKitQty = getFinalProductStockKitDetails(rows).reduce((sum, detail) => sum + (Number(detail.stockCollectedQty) || 0), 0);
             container.innerHTML = `
                 <div class="final-product-metric"><strong>${productCount}</strong><span>Mamül</span></div>
                 <div class="final-product-metric"><strong>${totalQty}</strong><span>Toplam miktar</span></div>
                 <div class="final-product-metric"><strong>${detailCount}</strong><span>Lot / STS detayı</span></div>
-                <div class="final-product-metric"><strong>${rows.length}</strong><span>Satır</span></div>
+                <div class="final-product-metric"><strong>${stockKitQty}</strong><span>Stok kit adedi (${stockKitCount})</span></div>
+            `;
+        }
+
+        function getFinalProductStockKitDetails(rows) {
+            const list = [];
+            (Array.isArray(rows) ? rows : []).forEach(row => {
+                (Array.isArray(row.details) ? row.details : []).forEach(detail => {
+                    const stockQty = Number(detail.stockCollectedQty) || 0;
+                    const status = String(detail.status || '').trim().toLocaleLowerCase('tr');
+                    if (stockQty > 0 || status === 'ürün hazır ve stok toplandı') {
+                        list.push({ ...detail, aggregate: row, stockCollectedQty: stockQty });
+                    }
+                });
+            });
+            return list.sort((a, b) => String(a.productNo || a.aggregate?.productNo || '').localeCompare(String(b.productNo || b.aggregate?.productNo || ''), 'tr'));
+        }
+
+        function renderFinalProductStockKits(rows) {
+            const container = document.getElementById('finalProductStockKits');
+            if (!container) return;
+            const details = getFinalProductStockKitDetails(rows);
+            if (details.length === 0) {
+                container.innerHTML = '';
+                return;
+            }
+            container.innerHTML = `
+                <div class="final-product-stock-kits-header">
+                    <h3>Stok Kitleri</h3>
+                    <span>${details.length} satır</span>
+                </div>
+                <div class="table-scroll final-product-stock-kits-table-wrap">
+                    <table class="data-table final-product-stock-kits-table">
+                        <thead>
+                            <tr>
+                                <th>Mamül</th>
+                                <th>Açıklama</th>
+                                <th>STS</th>
+                                <th>Lot</th>
+                                <th>Stok Toplanan</th>
+                                <th>Durum</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${details.map(detail => `
+                                <tr>
+                                    <td><strong>${esc(detail.aggregate?.productNo || detail.productNo || '-')}</strong></td>
+                                    <td>${esc(detail.aggregate?.rxnName || detail.rxnName || '-')}</td>
+                                    <td>${esc(detail.orderNo || '-')}</td>
+                                    <td>${detail.lotNo ? `<span class="lot-chip">${esc(detail.lotNo)}</span>` : '<span class="cell-subtle">Lot yok</span>'}</td>
+                                    <td>${esc(String(detail.stockCollectedQty || 0))}</td>
+                                    <td>${esc(detail.status || '-')}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
             `;
         }
 
@@ -1224,7 +1284,9 @@
                     <td>${esc(detail.orderNo || '-')}</td>
                     <td>${detail.lotNo ? `<span class="lot-chip">${esc(detail.lotNo)}</span>` : '<span class="cell-subtle">Lot yok</span>'}</td>
                     <td>${esc(detail.quantityText || '-')}</td>
-                    <td>${esc(detail.stockCollectedQty ? String(detail.stockCollectedQty) : '-')}</td>
+                    <td>
+                        <input class="final-product-count-input" type="number" min="0" step="1" value="${esc(detail.stockCollectedQty || '')}" data-final-stock-id="${esc(detail.id)}" placeholder="Stok">
+                    </td>
                     <td>${esc(detail.status || '-')}</td>
                     <td>
                         <input class="final-product-count-input" type="number" min="0" step="1" value="${esc(detail.countedQty || '')}" data-final-detail-id="${esc(detail.id)}" placeholder="Sayı">
@@ -1241,22 +1303,25 @@
             if (!tbody) return;
 
             if (!canViewFinalProductQuantities()) {
-                tbody.innerHTML = '<tr><td colspan="6" class="empty-state-cell">Bu ekran yalnızca dev ortamında admin ve üretim ekibi için açıktır.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" class="empty-state-cell">Bu ekran yalnızca dev ortamında admin ve üretim ekibi için açıktır.</td></tr>';
                 renderFinalProductSummary([]);
+                renderFinalProductStockKits([]);
                 return;
             }
 
             if (finalProductQuantitiesLoading) {
-                tbody.innerHTML = '<tr><td colspan="6" class="empty-state-cell">Veri yükleniyor...</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" class="empty-state-cell">Veri yükleniyor...</td></tr>';
                 renderFinalProductSummary([]);
+                renderFinalProductStockKits([]);
                 return;
             }
 
             const rows = filterFinalProductRows(finalProductQuantityRows);
             renderFinalProductSummary(rows);
+            renderFinalProductStockKits(rows);
 
             if (rows.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="6" class="empty-state-cell">Eşleşen kayıt bulunamadı.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" class="empty-state-cell">Eşleşen kayıt bulunamadı.</td></tr>';
                 syncFinalProductHeaderFilterIcons();
                 return;
             }
@@ -1268,13 +1333,14 @@
                         ${row.materialNo && row.materialNo !== row.productNo ? `<div class="cell-subtle">${esc(row.materialNo)}</div>` : ''}
                     </td>
                     <td>${esc(row.rxnName || '-')}</td>
+                    <td>${esc((row.details || []).map(detail => detail.lotNo).filter(Boolean).slice(0, 3).join(', ') || '-')}</td>
                     <td>${esc(row.quantityText || '-')}</td>
                     <td>${esc(row.format || '-')}</td>
                     <td>${esc(row.status || '-')}</td>
                     <td>${esc(String(row.details?.length || 0))}</td>
                 </tr>
                 <tr class="final-product-detail-row" id="finalProductDetail_${esc(row.key)}" style="display:none;">
-                    <td colspan="6">
+                    <td colspan="7">
                         <table class="final-product-inner-table">
                             <thead>
                                 <tr>
@@ -1486,28 +1552,88 @@
             const escapedRowId = window.CSS && typeof CSS.escape === 'function'
                 ? CSS.escape(String(rowId))
                 : String(rowId).replace(/"/g, '\\"');
-            const input = document.querySelector(`[data-final-detail-id="${escapedRowId}"]`);
-            const qty = parseFinalProductNumber(input?.value || '');
+            const countInput = document.querySelector(`[data-final-detail-id="${escapedRowId}"]`);
+            const stockInput = document.querySelector(`[data-final-stock-id="${escapedRowId}"]`);
+            const countQty = parseFinalProductNumber(countInput?.value || '');
+            const stockQty = parseFinalProductNumber(stockInput?.value || '');
             try {
-                const rowRef = firebase.database().ref(getFirebaseDbPath(`salesLines/v2/rows/${rowId}`));
+                const rowKey = typeof firebaseSync !== 'undefined' && firebaseSync && typeof firebaseSync.encodeDatabaseKey === 'function'
+                    ? firebaseSync.encodeDatabaseKey(rowId)
+                    : rowId;
+                const rowRef = firebase.database().ref(getFirebaseDbPath(`salesLines/v2/rows/${rowKey}`));
                 const snapshot = await rowRef.once('value');
                 const wrapper = snapshot.val() || {};
-                const rowJson = wrapper.rowJson ? JSON.parse(wrapper.rowJson) : {};
-                rowJson._finalProductCountQty = qty;
-                rowJson._finalProductCountUpdatedAt = new Date().toISOString();
-                rowJson._finalProductCountUpdatedBy = currentUser?.paraf || currentUser?.fullName || 'dev';
-                await rowRef.update({
+                let rowJson = {};
+                if (typeof wrapper.rowJson === 'string') {
+                    try { rowJson = JSON.parse(wrapper.rowJson) || {}; } catch (_) { rowJson = {}; }
+                } else if (wrapper.data && typeof wrapper.data === 'object') {
+                    rowJson = { ...wrapper.data };
+                } else if (wrapper && typeof wrapper === 'object') {
+                    rowJson = { ...wrapper };
+                    delete rowJson.rowJson;
+                    delete rowJson.rowUpdatedAt;
+                    delete rowJson.rowUpdatedBy;
+                    delete rowJson.rowUpdatedByUid;
+                    delete rowJson.rowVersion;
+                    delete rowJson.index;
+                }
+                const updatedAt = new Date().toISOString();
+                const updatedBy = currentUser?.paraf || currentUser?.fullName || 'dev';
+                rowJson._finalProductCountQty = countQty;
+                rowJson._finalProductCountUpdatedAt = updatedAt;
+                rowJson._finalProductCountUpdatedBy = updatedBy;
+                rowJson._stockCollectedQty = stockQty;
+                rowJson._stockCollectedAt = updatedAt;
+                rowJson._stockCollectedBy = updatedBy;
+                const updates = {
                     rowJson: JSON.stringify(rowJson),
-                    rowUpdatedAt: rowJson._finalProductCountUpdatedAt,
-                    rowUpdatedBy: rowJson._finalProductCountUpdatedBy,
+                    rowUpdatedAt: updatedAt,
+                    rowUpdatedBy: updatedBy,
                     rowUpdatedByUid: currentUser?.uid || null
+                };
+                if (wrapper.data && typeof wrapper.data === 'object') updates.data = rowJson;
+                await rowRef.update(updates);
+                updateFinalProductDetailLocal(rowId, {
+                    countedQty: countQty,
+                    stockCollectedQty: stockQty,
+                    sourcePatch: {
+                        _finalProductCountQty: countQty,
+                        _finalProductCountUpdatedAt: updatedAt,
+                        _finalProductCountUpdatedBy: updatedBy,
+                        _stockCollectedQty: stockQty,
+                        _stockCollectedAt: updatedAt,
+                        _stockCollectedBy: updatedBy
+                    }
                 });
-                showToast('Sayım güncellendi.', 'success');
+                showToast('Sayım ve stok miktarı güncellendi.', 'success');
+                renderFinalProductQuantities();
                 refreshFinalProductQuantities();
             } catch (error) {
                 console.error(error);
                 showToast('Sayım kaydedilemedi.', 'error');
             }
+        }
+
+        function updateFinalProductDetailLocal(rowId, patch = {}) {
+            const id = String(rowId || '');
+            finalProductQuantityRows = finalProductQuantityRows.map(row => {
+                if (!Array.isArray(row.details)) return row;
+                let changed = false;
+                const details = row.details.map(detail => {
+                    if (String(detail.id || '') !== id) return detail;
+                    changed = true;
+                    return {
+                        ...detail,
+                        countedQty: Number(patch.countedQty) || 0,
+                        stockCollectedQty: Number(patch.stockCollectedQty) || 0,
+                        source: {
+                            ...(detail.source || {}),
+                            ...(patch.sourcePatch || {})
+                        }
+                    };
+                });
+                return changed ? { ...row, details } : row;
+            });
         }
 
         window.toggleFinalProductDetail = toggleFinalProductDetail;
