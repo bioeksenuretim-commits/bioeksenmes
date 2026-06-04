@@ -405,7 +405,7 @@ let detailRowsFilterTimer = null;
 const TODAY_OUTPUT_COLUMNS = ['Sipariş Tarihi','Belge No','Müşteri','No','Açıklama','Konum Kodu','Miktar','Ölçü Birimi','Teslim Tarihi','Ürün Durumu'];
 const TODAY_OUTPUT_EXCEL_COLUMNS = TODAY_OUTPUT_COLUMNS.filter(col => col !== 'Ürün Durumu');
 const DEFAULT_DETAIL_COLUMNS = ['Belge No','Müşteri','No','Açıklama','Miktar','Ölçü Birimi','Teslim Tarihi','Lot No','Ürün Durumu'];
-const OUTPUT_DETAIL_COLUMNS = ['Belge No','Müşteri','No','Açıklama','Miktar','Ölçü Birimi','Teslim Tarihi','Lot No','Çıkış Tarihi','Ürün Durumu'];
+const OUTPUT_DETAIL_COLUMNS = ['Temsilci','Belge No','Müşteri','No','Açıklama','Miktar','Ölçü Birimi','Teslim Tarihi','Lot No','Çıkış Tarihi','Ürün Durumu'];
 
 function getPersonalizedDetailColumns(baseColumns) {
     if (!canUseColumnPersonalization()) return baseColumns;
