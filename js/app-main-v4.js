@@ -2960,7 +2960,7 @@
                 }
                 syncSalesLinesPermissionsToFrame();
             };
-    const salesLinesVersion = '20260605-sales-lines-cache-guard';
+    const salesLinesVersion = '20260605-sales-lines-scroll-notify';
     frame.src = `./sales-lines.html?v=${salesLinesVersion}${isTestLocalSession() ? '&testLocal=1' : ''}${isDevEnvironment() ? '&env=dev' : ''}`;
             frame.dataset.embeddedReady = 'true';
         }

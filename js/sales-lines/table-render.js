@@ -511,6 +511,41 @@ function renderTableColGroup() {
     }
 }
 
+let salesLinesHorizontalScrollSyncing = false;
+let salesLinesHorizontalScrollBound = false;
+
+function syncSalesLinesHorizontalScroller() {
+    const topScroll = document.getElementById('salesLinesTopHorizontalScroll');
+    const spacer = document.getElementById('salesLinesTopHorizontalScrollSpacer');
+    const tableScroll = document.querySelector('.table-scroll');
+    const table = document.getElementById('dataTable');
+    if (!topScroll || !spacer || !tableScroll || !table) return;
+
+    const scrollWidth = Math.max(table.scrollWidth, table.getBoundingClientRect().width, tableScroll.clientWidth);
+    spacer.style.width = `${scrollWidth}px`;
+    topScroll.style.display = scrollWidth > tableScroll.clientWidth + 2 ? 'block' : 'none';
+    if (!salesLinesHorizontalScrollSyncing) {
+        topScroll.scrollLeft = tableScroll.scrollLeft;
+    }
+
+    if (!salesLinesHorizontalScrollBound) {
+        salesLinesHorizontalScrollBound = true;
+        topScroll.addEventListener('scroll', () => {
+            if (salesLinesHorizontalScrollSyncing) return;
+            salesLinesHorizontalScrollSyncing = true;
+            tableScroll.scrollLeft = topScroll.scrollLeft;
+            requestAnimationFrame(() => { salesLinesHorizontalScrollSyncing = false; });
+        }, { passive: true });
+        tableScroll.addEventListener('scroll', () => {
+            if (salesLinesHorizontalScrollSyncing) return;
+            salesLinesHorizontalScrollSyncing = true;
+            topScroll.scrollLeft = tableScroll.scrollLeft;
+            requestAnimationFrame(() => { salesLinesHorizontalScrollSyncing = false; });
+        }, { passive: true });
+        window.addEventListener('resize', () => requestAnimationFrame(syncSalesLinesHorizontalScroller));
+    }
+}
+
 function renderColumnResizer(col) {
     return `<span class="col-resizer" title="Sütun genişliğini değiştir" onmousedown="startColumnResize(event,'${col}')" ondblclick="resetColumnWidth(event,'${col}')"></span>`;
 }
@@ -560,6 +595,7 @@ function renderTable() {
     document.getElementById('tableBody').innerHTML = bodyHtml;
     renderPagination(1, sorted.length);
     updateBulkEditBar();
+    requestAnimationFrame(syncSalesLinesHorizontalScroller);
 }
 
 // ===== INLINE EDITING =====
@@ -744,6 +780,7 @@ function applyColumnWidth(col, width) {
         table.style.width = `${totalWidth}px`;
         table.style.minWidth = `${totalWidth}px`;
     }
+    requestAnimationFrame(syncSalesLinesHorizontalScroller);
 }
 
 function startColumnResize(event, col) {
@@ -935,7 +972,7 @@ function sortBy(col) {
 // ===== PAGINATION =====
 function renderPagination(totalPages, totalItems) {
     const shown = Math.min(renderedRowLimit, totalItems);
-    const suffix = shown < totalItems ? ' - devamı için aşağı kaydırın' : '';
+    const suffix = shown < totalItems ? ' - devamı otomatik yüklenir' : '';
     document.getElementById('pagination').innerHTML = `<div class="pagination-info">${shown} / ${totalItems} satır${suffix}</div>`;
     return;
     const start = (currentPage - 1) * pageSize + 1;
@@ -979,6 +1016,7 @@ function loadMoreRenderedRows() {
         tableBody.insertAdjacentHTML('beforeend', rowsToAppend.map(renderSalesLineRow).join(''));
     }
     renderPagination(1, filteredOrders.length);
+    requestAnimationFrame(syncSalesLinesHorizontalScroller);
 }
 
 let salesLinesScrollTicking = false;

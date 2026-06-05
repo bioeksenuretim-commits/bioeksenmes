@@ -62,6 +62,7 @@ let salesLinesLocalCacheRowCount = null;
 let salesLinesFirebaseRowCount = null;
 let salesLinesFirebaseMetaRowCount = null;
 let salesLinesDataSourceWarning = '';
+let lastSalesLinesDataSourceNotificationSignature = '';
 let cloudSyncPollTimer = null;
 let cloudSyncInFlight = false;
 let lastCloudPayloadSignature = '';
@@ -230,6 +231,43 @@ function updateSalesLinesDataSourceUi() {
     }
     if (reloadBtn) reloadBtn.style.display = canForceReloadSalesLinesFromFirebase() ? 'inline-flex' : 'none';
     document.body.classList.toggle('sales-lines-central-pending', !verified && !pending);
+    notifySalesLinesDataSourceState();
+}
+
+function notifySalesLinesDataSourceState() {
+    const parentWindow = getEmbeddedParentWindow();
+    if (!parentWindow || typeof parentWindow.addDevNotification !== 'function') return;
+
+    const verified = isSalesLinesFirebaseVerified();
+    const warning = salesLinesDataSourceWarning || (!verified ? 'Merkezi veri doğrulanana kadar düzenleme kapalı.' : '');
+    const signature = JSON.stringify({
+        dataSource: salesLinesDataSource,
+        firebaseLoadState: salesLinesFirebaseLoadState,
+        firebaseRowCount: salesLinesFirebaseRowCount,
+        firebaseMetaRowCount: salesLinesFirebaseMetaRowCount,
+        indexedDbRowCount: salesLinesIndexedDbRowCount,
+        warning
+    });
+    if (signature === lastSalesLinesDataSourceNotificationSignature) return;
+    lastSalesLinesDataSourceNotificationSignature = signature;
+
+    const messageParts = [
+        getSalesLinesDataSourceLabel(),
+        `Ekran: ${Array.isArray(allOrders) ? allOrders.length : 0}`,
+        `Firebase: ${salesLinesFirebaseRowCount ?? '-'}`,
+        salesLinesIndexedDbRowCount !== null ? `Cache: ${salesLinesIndexedDbRowCount}` : '',
+        warning
+    ].filter(Boolean);
+
+    try {
+        parentWindow.addDevNotification({
+            id: `sales-lines-source-${Date.now()}`,
+            type: verified ? 'success' : 'info',
+            title: 'Sales Lines merkezi veri',
+            message: messageParts.join(' | '),
+            createdAt: new Date().toISOString()
+        });
+    } catch (_) {}
 }
 
 function logSalesLinesDataSourceDebug(context = '') {
