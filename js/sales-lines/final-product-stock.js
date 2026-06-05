@@ -5,7 +5,46 @@ function isFinalProductStockEnabled() {
     return typeof isSalesLinesDevEnvironment === 'function'
         && isSalesLinesDevEnvironment()
         && typeof firebase !== 'undefined'
+        && firebase?.auth
         && firebase?.database;
+}
+
+async function ensureFinalProductStockAuth() {
+    if (!isFinalProductStockEnabled()) return false;
+    if (firebase.auth().currentUser) return true;
+
+    try {
+        const parentAuthUser = window.parent
+            && window.parent !== window
+            && window.parent.firebase
+            && window.parent.firebase.auth
+            && window.parent.firebase.auth().currentUser;
+        if (parentAuthUser && typeof firebase.auth().updateCurrentUser === 'function') {
+            await firebase.auth().updateCurrentUser(parentAuthUser);
+            if (firebase.auth().currentUser) return true;
+        }
+    } catch (error) {
+        console.warn('Parent Firebase oturumu sales-lines ekranına taşınamadı:', error);
+    }
+
+    return await new Promise(resolve => {
+        let done = false;
+        let unsubscribe = null;
+        const finish = value => {
+            if (done) return;
+            done = true;
+            try { unsubscribe?.(); } catch (_) {}
+            resolve(value);
+        };
+        const timeout = setTimeout(() => finish(!!firebase.auth().currentUser), 3500);
+        unsubscribe = firebase.auth().onAuthStateChanged(user => {
+            clearTimeout(timeout);
+            finish(!!user);
+        }, () => {
+            clearTimeout(timeout);
+            finish(false);
+        });
+    });
 }
 
 function getFinalProductStockDbRef(path = '') {
@@ -124,6 +163,10 @@ function hasFinalProductMovement(root, key) {
 }
 
 async function transactFinalProductStock(mutator) {
+    if (!await ensureFinalProductStockAuth()) {
+        showToast('Firebase oturumu doğrulanamadı. Lütfen sayfayı yenileyip tekrar deneyin.', 'warning');
+        return { committed: false, result: null };
+    }
     const ref = getFinalProductStockDbRef();
     let resultPayload = null;
     const result = await ref.transaction(current => {
@@ -181,6 +224,10 @@ async function applyReadyWithExtraStock(order) {
     }
     const orderMovementKey = `ready-extra-order:${base.salesLineId}`;
     const stockMovementKey = `ready-extra-stock:${base.salesLineId}`;
+    if (!await ensureFinalProductStockAuth()) {
+        showToast('Firebase oturumu doğrulanamadı. Lütfen sayfayı yenileyip tekrar deneyin.', 'warning');
+        return { ok: false };
+    }
     const existing = (await getFinalProductStockDbRef(`movements/${buildFinalProductStockKey(stockMovementKey)}`).once('value')).val();
     let stockQty = Number(existing?.quantity) || 0;
     if (!existing) {
@@ -246,6 +293,10 @@ async function applyReadyWithExtraStock(order) {
 }
 
 async function getAvailableFinalProductStockLots(productNo) {
+    if (!await ensureFinalProductStockAuth()) {
+        showToast('Firebase oturumu doğrulanamadı. Lütfen sayfayı yenileyip tekrar deneyin.', 'warning');
+        return [];
+    }
     const snapshot = await getFinalProductStockDbRef('items').once('value');
     const items = snapshot.val() || {};
     return Object.values(items)
@@ -262,6 +313,10 @@ async function applyStockToOrder(order) {
         return { ok: false };
     }
     const movementKey = `stock-to-order:${base.salesLineId}`;
+    if (!await ensureFinalProductStockAuth()) {
+        showToast('Firebase oturumu doğrulanamadı. Lütfen sayfayı yenileyip tekrar deneyin.', 'warning');
+        return { ok: false };
+    }
     const existingMovement = (await getFinalProductStockDbRef(`movements/${buildFinalProductStockKey(movementKey)}`).once('value')).val();
     if (existingMovement) {
         return {
