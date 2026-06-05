@@ -21,6 +21,15 @@ function getSalesLinesDbPrefix() {
     return new URLSearchParams(window.location.search).get('env') === 'dev' ? 'dev/' : '';
 }
 
+function getSalesLinesFirebaseEnv() {
+    return String(getSalesLinesDbPrefix() || '').replace(/^\/+|\/+$/g, '') === 'dev' ? 'dev' : 'live';
+}
+
+function getSalesLinesFirebasePath(path = '') {
+    const cleanPath = String(path || '').replace(/^\/+/, '');
+    return `${getSalesLinesDbPrefix()}${cleanPath}`;
+}
+
 function buildFirebaseRestUrl(path, includeJson = true) {
     const cleanPath = String(path || '').replace(/^\/+/, '');
     const prefix = getSalesLinesDbPrefix();
@@ -31,6 +40,7 @@ const SALES_LINES_CLOUD_URL = buildFirebaseRestUrl('salesLines/state');
 const SALES_LINES_V2_CLOUD_URL = buildFirebaseRestUrl('salesLines/v2');
 const SALES_LINES_TODAY_OUTPUTS_CLOUD_BASE_URL = buildFirebaseRestUrl('salesLines/v2/todayOutputs', false);
 const PRODUCT_TREES_CLOUD_URL = buildFirebaseRestUrl('productTrees');
+console.warn('Sales lines Firebase env:', getSalesLinesFirebaseEnv(), 'path prefix:', getSalesLinesDbPrefix() || '(live)', 'salesLinesV2 path:', getSalesLinesFirebasePath('salesLines/v2'));
 const SALES_LINES_CACHE_DB_NAME = SALES_LINES_TEST_LOCAL_MODE ? 'ReaksiyonTestSalesLinesCache' : 'ReaksiyonSalesLinesCache';
 const SALES_LINES_CACHE_DB_VERSION = 2;
 const SALES_LINES_CACHE_STORE = 'payloads';
@@ -182,6 +192,30 @@ function ensureSalesLinesWritable(message = 'Bu sekme salt okunur modda. Yazma y
     if (!salesLinesTabReadonly) return true;
     showToast(message, 'warning');
     return false;
+}
+
+function isDevSalesLinesUser() {
+    const user = embeddedPermissionState?.currentUser || getParentSessionUser() || {};
+    const role = String(user.role || '').trim().toLowerCase();
+    return role === 'dev' || role === 'developer';
+}
+
+function ensureSalesLinesEnvironmentWritable() {
+    const env = getSalesLinesFirebaseEnv();
+    if (isDevSalesLinesUser() && env !== 'dev') {
+        showToast('Dev kullanıcısı canlı sales lines path’ine yazamaz.', 'error', 6000);
+        return false;
+    }
+    try {
+        const parentWindow = getEmbeddedParentWindow();
+        if (parentWindow?.assertCanWriteSalesLinesEnvironment) {
+            parentWindow.assertCanWriteSalesLinesEnvironment(env);
+        }
+    } catch (error) {
+        showToast(error?.message || 'Satış satırı canlı/dev ortam kontrolü başarısız.', 'error', 6000);
+        return false;
+    }
+    return true;
 }
 
 function initSalesLinesTabCoordinator() {
@@ -1899,10 +1933,13 @@ function buildTodayOutputsCloudPayload(meta = {}) {
     const now = new Date().toISOString();
     const dateKey = String(meta.dateKey || getSalesLinesTodayOutputDateKey()).slice(0, 10);
     return {
+        env: getSalesLinesFirebaseEnv(),
         dateKey,
         rowIds: Array.from(todayOutputOrderIds || []),
         meta: {
             action: meta.action || meta.source || 'today-outputs-update',
+            env: getSalesLinesFirebaseEnv(),
+            dbPrefix: getSalesLinesDbPrefix(),
             createdAt: meta.createdAt || now,
             createdBy: meta.createdBy || actor.paraf || '',
             createdByUid: meta.createdByUid || actor.uid || null,
@@ -2435,24 +2472,27 @@ async function flushSalesLinesCloudSave(payload, options = {}) {
         lastCloudPayloadSignature = getSalesLinesPayloadSignature(payload);
         return true;
     }
+    if (!ensureSalesLinesEnvironmentWritable()) return false;
 
     const cloudSaveAttempts = [];
+    const env = getSalesLinesFirebaseEnv();
+    const syncOptions = { ...options, env };
 
     if (!suppressSalesLinesParentPost && window.parent && window.parent !== window) {
         if (typeof window.parent.syncSalesLinesPayloadToCloud === 'function') {
             cloudSaveAttempts.push(Promise.resolve(
-                window.parent.syncSalesLinesPayloadToCloud(payload, 'sales_lines_iframe_debounced', options)
+                window.parent.syncSalesLinesPayloadToCloud(payload, 'sales_lines_iframe_debounced', syncOptions)
             ).catch(error => {
                 console.warn('Dogrudan cloud sync hatasi:', error);
                 return false;
             }));
         } else {
-            window.parent.postMessage({ type: 'sales-lines-updated', payload }, '*');
+            window.parent.postMessage({ type: 'sales-lines-updated', env, payload }, '*');
         }
     }
 
     if (cloudSaveAttempts.length === 0 && isEmbeddedSalesLinesFrame()) {
-        getEmbeddedParentWindow()?.postMessage?.({ type: 'sales-lines-updated', payload }, '*');
+        getEmbeddedParentWindow()?.postMessage?.({ type: 'sales-lines-updated', env, payload }, '*');
     }
 
     if (cloudSaveAttempts.length === 0 && !isEmbeddedSalesLinesFrame()) {
@@ -2581,15 +2621,18 @@ function scheduleSalesLinesSave(meta = {}, options = {}) {
 async function saveTodayOutputsState(meta = {}, options = {}) {
     try {
         if (!ensureSalesLinesWritable()) return false;
+        if (!ensureSalesLinesEnvironmentWritable()) return false;
         const payload = buildTodayOutputsCloudPayload(meta);
         const reason = meta.source || meta.action || 'sales_lines_today_outputs_update';
         let saved = false;
+        const env = getSalesLinesFirebaseEnv();
+        const syncOptions = { ...options, env };
 
         if (!suppressSalesLinesParentPost && window.parent && window.parent !== window) {
             if (typeof window.parent.syncSalesLinesTodayOutputsToCloud === 'function') {
-                saved = await Promise.resolve(window.parent.syncSalesLinesTodayOutputsToCloud(payload, reason, options));
+                saved = await Promise.resolve(window.parent.syncSalesLinesTodayOutputsToCloud(payload, reason, syncOptions));
             } else if (window.parent.firebaseSync && typeof window.parent.firebaseSync.syncSalesLinesTodayOutputs === 'function') {
-                saved = await Promise.resolve(window.parent.firebaseSync.syncSalesLinesTodayOutputs(payload, { reason, ...options }));
+                saved = await Promise.resolve(window.parent.firebaseSync.syncSalesLinesTodayOutputs(payload, { reason, ...syncOptions }));
             }
         }
 
@@ -2621,6 +2664,7 @@ async function saveSalesLinesState(meta = {}, options = {}) {
     let scheduledResolversForImmediate = [];
     try {
         if (!ensureSalesLinesWritable()) return false;
+        if (!ensureSalesLinesEnvironmentWritable()) return false;
         if (options && options.immediate && scheduledSalesLinesSaveTimer) {
             clearTimeout(scheduledSalesLinesSaveTimer);
             scheduledSalesLinesSaveTimer = null;
@@ -2630,6 +2674,8 @@ async function saveSalesLinesState(meta = {}, options = {}) {
         }
         const normalizedMeta = (meta && typeof meta === 'object') ? { ...meta } : {};
         if (!normalizedMeta.source) normalizedMeta.source = 'local-edit';
+        normalizedMeta.env = getSalesLinesFirebaseEnv();
+        normalizedMeta.dbPrefix = getSalesLinesDbPrefix();
         const fullSync = !!(normalizedMeta.sourceFile || normalizedMeta.reset || options.fullSync);
         const changedRowIds = fullSync ? [] : Array.from(new Set([
             ...(Array.isArray(options.changedRowIds) ? options.changedRowIds : []),
@@ -2838,6 +2884,7 @@ function loadSalesLinesStateFromPayload(payload, options = {}) {
         if (!options.skipParentPost && window.parent && window.parent !== window) {
             window.parent.postMessage({
                 type: 'sales-lines-updated',
+                env: getSalesLinesFirebaseEnv(),
                 payload: {
                     version: 1,
                     savedAt: payload.savedAt || new Date().toISOString(),

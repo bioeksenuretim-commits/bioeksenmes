@@ -43,18 +43,35 @@
             return new URLSearchParams(window.location.search).get('env') === DEV_ENV_QUERY_VALUE;
         }
 
+        function getCurrentUserRole(user = currentUser) {
+            return String(user?.role || '').trim().toLowerCase();
+        }
+
+        function isDevRoleUser(user = currentUser) {
+            const role = getCurrentUserRole(user);
+            return role === 'dev' || role === 'developer';
+        }
+
         function canUseDevEnvironment(user = currentUser) {
             const role = String(user?.role || '').trim().toLowerCase();
-            return role === 'admin' || role === 'dev';
+            return role === 'admin' || role === 'dev' || role === 'developer';
         }
 
         function isDevEnvironment() {
-            const role = String(currentUser?.role || '').trim().toLowerCase();
-            return canUseDevEnvironment() && (hasDevEnvQuery() || role === 'dev');
+            return canUseDevEnvironment() && (hasDevEnvQuery() || isDevRoleUser());
+        }
+
+        function getFirebaseEnvPrefix() {
+            return isDevEnvironment() ? 'dev' : '';
+        }
+
+        function getFirebaseEnvName() {
+            return getFirebaseEnvPrefix() ? 'dev' : 'live';
         }
 
         function getFirebaseDbPrefix() {
-            return isDevEnvironment() ? 'dev/' : '';
+            const prefix = getFirebaseEnvPrefix();
+            return prefix ? `${prefix}/` : '';
         }
 
         function getFirebaseDbPath(path = '') {
@@ -65,8 +82,10 @@
             const enabled = isDevEnvironment();
             window.IS_DEV_ENV = enabled;
             window.DB_PREFIX = getFirebaseDbPrefix();
+            window.DB_ENV = getFirebaseEnvName();
             document.body?.classList.toggle('dev-environment', enabled);
             renderDevEnvironmentBanner();
+            console.warn('Sales lines Firebase env:', window.DB_ENV, 'path prefix:', window.DB_PREFIX || '(live)', 'salesLinesV2 path:', getFirebaseDbPath('salesLines/v2'));
         }
 
         function renderDevEnvironmentBanner() {
@@ -84,9 +103,22 @@
         }
 
         window.isDevEnvironment = isDevEnvironment;
+        window.getFirebaseEnvPrefix = getFirebaseEnvPrefix;
+        window.getFirebaseEnvName = getFirebaseEnvName;
         window.getFirebaseDbPrefix = getFirebaseDbPrefix;
         window.getFirebaseDbPath = getFirebaseDbPath;
         window.syncDevEnvironmentState = syncDevEnvironmentState;
+        window.assertCanWriteSalesLinesEnvironment = function assertCanWriteSalesLinesEnvironment(requestedEnv = getFirebaseEnvName()) {
+            const normalizedRequestedEnv = String(requestedEnv || getFirebaseEnvName()).trim().toLowerCase();
+            const currentEnv = getFirebaseEnvName();
+            if (isDevRoleUser() && currentEnv !== 'dev') {
+                throw new Error('Dev kullanıcısı canlı sales lines path’ine yazamaz.');
+            }
+            if (normalizedRequestedEnv === 'dev' && currentEnv !== 'dev') {
+                throw new Error('Dev sales lines isteği canlı Firebase path’i üzerinden yazılamaz.');
+            }
+            return true;
+        };
 
         function buildFirebaseSession(firebaseUser, profile) {
             if (!firebaseUser || !profile) return null;
@@ -772,7 +804,7 @@
             if (!hasMatchingFirebaseAuthSession()) return false;
             const role = String(currentUser?.role || '').trim().toLowerCase();
             const department = normalizeDepartmentName(currentUser?.department);
-            return role === 'admin' || role === 'dev' || department === 'uretim';
+            return role === 'admin' || role === 'dev' || role === 'developer' || department === 'uretim';
         }
 
         function canDeleteData() {
@@ -792,7 +824,7 @@
             if (!hasMatchingFirebaseAuthSession()) return false;
             const role = String(currentUser.role || '').trim().toLowerCase();
             const department = normalizeDepartmentName(currentUser.department);
-            return role === 'admin' || role === 'dev' || department === 'uretim' || department === 'satis';
+            return role === 'admin' || role === 'dev' || role === 'developer' || department === 'uretim' || department === 'satis';
         }
 
         function buildSalesLinesPermissionState() {
@@ -802,10 +834,12 @@
             const department = normalizeDepartmentName(sessionUser?.department);
 
             return {
-                canManageSalesLineRequests: isTestLocalSession() || role === 'admin' || role === 'dev' || department === 'uretim',
-                canCreateManualSalesLines: isTestLocalSession() || role === 'admin' || role === 'dev' || department === 'uretim' || department === 'satis',
+                canManageSalesLineRequests: isTestLocalSession() || role === 'admin' || role === 'dev' || role === 'developer' || department === 'uretim',
+                canCreateManualSalesLines: isTestLocalSession() || role === 'admin' || role === 'dev' || role === 'developer' || department === 'uretim' || department === 'satis',
                 canDeleteSalesLines: role === 'admin',
                 testLocal: isTestLocalSession(),
+                env: getFirebaseEnvName(),
+                dbPrefix: getFirebaseDbPrefix(),
                 currentUser: sessionUser || null
             };
         }
@@ -2448,6 +2482,13 @@
         async function syncSalesLinesPayloadToCloud(payload, reason = 'sales_lines_iframe_update', syncOptions = {}) {
             if (!payload) return false;
             if (isTestLocalSession()) return true;
+            try {
+                window.assertCanWriteSalesLinesEnvironment(syncOptions.env || payload?.meta?.env || getFirebaseEnvName());
+            } catch (error) {
+                console.error(error.message || error);
+                showToast(error.message || 'Satış satırı canlı/dev ortam kontrolü başarısız.', 'error', 6000);
+                return false;
+            }
             const payloadTime = getSalesLinesPayloadTime(payload);
             const userAuthoredPayload = isUserAuthoredSalesLinesPayload(payload, reason);
             const storedPayload = readStoredSalesLinesPayload();
@@ -2874,6 +2915,13 @@
         async function syncSalesLinesTodayOutputsToCloud(payload, reason = 'sales_lines_today_outputs_update', syncOptions = {}) {
             if (!payload) return false;
             if (isTestLocalSession()) return true;
+            try {
+                window.assertCanWriteSalesLinesEnvironment(syncOptions.env || payload?.env || payload?.meta?.env || getFirebaseEnvName());
+            } catch (error) {
+                console.error(error.message || error);
+                showToast(error.message || 'Bugünün çıkışları canlı/dev ortam kontrolü başarısız.', 'error', 6000);
+                return false;
+            }
             if (typeof firebaseReady !== 'undefined' && firebaseReady && typeof firebaseSync !== 'undefined' && typeof firebaseSync.syncSalesLinesTodayOutputs === 'function') {
                 try {
                     return await firebaseSync.syncSalesLinesTodayOutputs(payload, { reason, ...syncOptions });
@@ -2912,7 +2960,7 @@
                 }
                 syncSalesLinesPermissionsToFrame();
             };
-    const salesLinesVersion = '20260605-final-product-stock-auth';
+    const salesLinesVersion = '20260605-sales-lines-env-guard';
     frame.src = `./sales-lines.html?v=${salesLinesVersion}${isTestLocalSession() ? '&testLocal=1' : ''}${isDevEnvironment() ? '&env=dev' : ''}`;
             frame.dataset.embeddedReady = 'true';
         }
@@ -3052,7 +3100,7 @@
                 renderSalesLinesSummary();
                 renderDashboard();
             });
-            syncSalesLinesPayloadToCloud(event.data.payload, 'sales_lines_iframe_update');
+            syncSalesLinesPayloadToCloud(event.data.payload, 'sales_lines_iframe_update', { env: event.data.env });
         });
 
         try {

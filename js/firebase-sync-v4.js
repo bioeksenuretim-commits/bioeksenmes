@@ -65,7 +65,26 @@ var firebaseSync = {
         this.salesLinesMetaRef = firebase.database().ref(dbPath('salesLines/v2/meta'));
         this.salesLinesTodayOutputsRef = firebase.database().ref(dbPath('salesLines/v2/todayOutputs'));
         this.auditLogsRef = firebase.database().ref(dbPath('auditLogs'));
+        const dbPrefix = typeof getFirebaseDbPrefix === 'function' ? getFirebaseDbPrefix() : '';
+        const dbEnv = dbPrefix ? String(dbPrefix).replace(/\/+$/, '') : 'live';
+        console.warn('Sales lines Firebase env:', dbEnv, 'path prefix:', dbPrefix || '(live)', 'salesLinesV2 path:', dbPath('salesLines/v2'));
         console.log(`Firebase Sync baslatildi${typeof isDevEnvironment === 'function' && isDevEnvironment() ? ' (DEV)' : ''}`);
+    },
+
+    assertSalesLinesWriteAllowed(options = {}) {
+        const requestedEnv = options.env || (typeof getFirebaseEnvName === 'function' ? getFirebaseEnvName() : '');
+        if (typeof window !== 'undefined' && typeof window.assertCanWriteSalesLinesEnvironment === 'function') {
+            window.assertCanWriteSalesLinesEnvironment(requestedEnv);
+        }
+        const activeEnv = typeof getFirebaseEnvName === 'function' ? getFirebaseEnvName() : (requestedEnv || 'live');
+        const refUrl = String(this.salesLinesV2Ref?.toString?.() || '');
+        if (activeEnv === 'dev' && refUrl && !refUrl.includes('/dev/salesLines/v2')) {
+            throw new Error('Sales lines dev ortamı canlı Firebase ref ile yazmaya çalışıyor.');
+        }
+        if (activeEnv !== 'dev' && refUrl && refUrl.includes('/dev/salesLines/v2')) {
+            throw new Error('Canlı sales lines işlemi dev Firebase ref ile yazmaya çalışıyor.');
+        }
+        return true;
     },
 
     cloneData(value) {
@@ -1638,6 +1657,7 @@ var firebaseSync = {
 
     async syncSalesLinesTodayOutputs(payload = {}, options = {}) {
         if (!this.salesLinesTodayOutputsRef) return false;
+        this.assertSalesLinesWriteAllowed(options);
         const normalized = this.normalizeTodayOutputsPayload(payload);
         const actor = this.getCurrentActor();
         const now = new Date().toISOString();
@@ -1683,6 +1703,7 @@ var firebaseSync = {
 
     async syncSalesLinesMetaPayload(payload, options = {}) {
         if (!this.salesLinesMetaRef) return false;
+        this.assertSalesLinesWriteAllowed(options);
         const normalizedPayload = this.normalizeSalesLinesPayload(payload);
         const incomingMeta = this.sanitizeSalesLinesMetaForStorage(normalizedPayload.meta || {});
         const now = new Date().toISOString();
@@ -1714,6 +1735,7 @@ var firebaseSync = {
 
     async syncSalesLinesRowsPatch(payload, options = {}) {
         if (!this.salesLinesV2Ref || !this.salesLinesRowsRef || !this.salesLinesEditedLogRef || !this.salesLinesMetaRef) return false;
+        this.assertSalesLinesWriteAllowed(options);
 
         const normalizedPayload = this.normalizeSalesLinesPayload(payload);
         const changedRowIds = this.getSalesLinePatchRowIds(normalizedPayload, 'changedRowIds');
@@ -1905,6 +1927,7 @@ var firebaseSync = {
 
     async syncSalesLinesPayload(payload, options = {}) {
         if (!this.salesLinesV2Ref || !this.salesLinesRowsRef || !this.salesLinesEditedLogRef || !this.salesLinesMetaRef) return false;
+        this.assertSalesLinesWriteAllowed(options);
 
         const normalizedPayload = this.normalizeSalesLinesPayload(payload);
         const syncMode = String(normalizedPayload.meta?.syncMode || '').trim();

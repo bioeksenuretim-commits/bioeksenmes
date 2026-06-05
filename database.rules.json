@@ -29,7 +29,7 @@
 
     "salesLines": {
       ".read": "auth != null && root.child('users').child(auth.uid).exists() && root.child('users').child(auth.uid).child('disabled').val() !== true && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('isApproved').val() !== false)",
-      ".write": "auth != null && root.child('users').child(auth.uid).exists() && root.child('users').child(auth.uid).child('disabled').val() !== true && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('department').val() === 'uretim' || root.child('users').child(auth.uid).child('department').val() === 'satis' || root.child('users').child(auth.uid).child('permissions').child('canManageSalesLineRequests').val() === true)",
+      ".write": "auth != null && root.child('users').child(auth.uid).exists() && root.child('users').child(auth.uid).child('disabled').val() !== true && root.child('users').child(auth.uid).child('role').val() !== 'dev' && root.child('users').child(auth.uid).child('role').val() !== 'developer' && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('department').val() === 'uretim' || root.child('users').child(auth.uid).child('department').val() === 'satis' || root.child('users').child(auth.uid).child('permissions').child('canManageSalesLineRequests').val() === true)",
       "state": {
         ".validate": "!newData.child('payloadJson').exists()"
       }
