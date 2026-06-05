@@ -11,7 +11,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
     <script src="/js/firebase-config.js?v=2"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/css/sales-lines.css?v=20260603-sales-lines-conflict-complete">
+    <link rel="stylesheet" href="/css/sales-lines.css?v=20260605-sales-lines-cache-guard">
 </head>
 <body>
 
@@ -24,6 +24,15 @@
         <button class="btn btn-sm" type="button" onclick="focusActiveSalesLinesTab()">Yeni sekmeye geÃ§</button>
         <button class="btn btn-sm btn-primary" type="button" onclick="reactivateSalesLinesTab()">Bu sekmeyi yeniden aktif yap</button>
     </div>
+</div>
+
+<div class="data-source-panel" id="salesLinesDataSourcePanel" data-state="loading" style="display:none;">
+    <div class="data-source-copy">
+        <strong id="salesLinesDataSourceTitle">Firebase merkezi veri yükleniyor</strong>
+        <span id="salesLinesDataSourceDetail">Veri kaynağı hazırlanıyor</span>
+        <em id="salesLinesDataSourceWarning" style="display:none;"></em>
+    </div>
+    <button class="btn btn-sm" id="salesLinesForceReloadBtn" type="button" onclick="forceReloadSalesLinesFromFirebase()" style="display:none;">Merkezden yeniden yükle</button>
 </div>
 
 <div class="header">
@@ -269,14 +278,14 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="/js/sales-lines/state.js?v=20260605-sales-lines-env-guard"></script>
+<script src="/js/sales-lines/state.js?v=20260605-sales-lines-cache-guard"></script>
 <script src="/js/sales-lines/excel-import.js?v=20260605-date-string-internals"></script>
 <script src="/js/sales-lines/customer-market.js?v=20260605-date-string-internals"></script>
 <script src="/js/sales-lines/final-product-stock.js?v=20260605-final-product-stock-auth"></script>
 <script src="/js/sales-lines/modals.js?v=20260605-output-rep-column"></script>
 <script src="/js/sales-lines/table-render.js?v=20260605-final-product-stock-bins"></script>
 <script src="/js/sales-lines/export.js?v=20260601-sales-lines-sync-guard"></script>
-<script src="/js/sales-lines/bootstrap.js?v=20260601-sales-lines-sync-guard"></script>
+<script src="/js/sales-lines/bootstrap.js?v=20260605-sales-lines-cache-guard"></script>
 </body>
 </html>
 

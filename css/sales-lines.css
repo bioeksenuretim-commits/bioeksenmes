@@ -33,6 +33,50 @@
             -webkit-font-smoothing: antialiased;
         }
         body.sales-lines-readonly { padding-top: 58px; }
+        body.sales-lines-central-pending .editable,
+        body.sales-lines-central-pending .status-select,
+        body.sales-lines-central-pending .row-select-checkbox,
+        body.sales-lines-central-pending .row-delete-btn,
+        body.sales-lines-central-pending #manualSalesLineBtn,
+        body.sales-lines-central-pending #bulkSalesLineRequestBtn,
+        body.sales-lines-central-pending #salesLinesResetBtn,
+        body.sales-lines-central-pending #bulkEditBar,
+        body.sales-lines-central-pending .upload-dropzone {
+            pointer-events: none;
+            opacity: 0.55;
+        }
+        .data-source-panel {
+            position: sticky;
+            top: 48px;
+            z-index: 28;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border);
+            background: #eff6ff;
+            color: #1e3a8a;
+        }
+        .data-source-panel[data-state="verified"] {
+            background: #ecfdf5;
+            color: #065f46;
+        }
+        .data-source-panel[data-state="cache"] {
+            background: #fff7ed;
+            color: #7c2d12;
+        }
+        .data-source-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .data-source-copy strong { font-size: 12px; }
+        .data-source-copy span,
+        .data-source-copy em {
+            font-size: 11px;
+            font-style: normal;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .data-source-copy em { font-weight: 700; }
         .readonly-banner {
             position: fixed;
             top: 0;
@@ -68,6 +112,9 @@
         @media (max-width: 720px) {
             body.sales-lines-readonly { padding-top: 92px; }
             .readonly-banner { align-items: flex-start; flex-direction: column; }
+            .data-source-panel { align-items: flex-start; flex-direction: column; }
+            .data-source-copy span,
+            .data-source-copy em { white-space: normal; }
         }
 
         /* ===== HEADER ===== */

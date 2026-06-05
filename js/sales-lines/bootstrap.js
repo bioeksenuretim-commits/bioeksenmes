@@ -73,6 +73,7 @@ document.addEventListener('visibilitychange', () => {
 
 window.addEventListener('storage', (event) => {
     if (event.key === SALES_LINES_STORAGE_KEY && event.newValue) {
+        if (isSalesLinesFirebaseVerified()) return;
         loadSalesLinesState();
     }
 });
@@ -102,7 +103,7 @@ window.addEventListener('message', (event) => {
 
     suppressSalesLinesParentPost = true;
     try {
-        loadSalesLinesStateFromPayload(event.data.payload, { skipParentPost: true, silent: true });
+        loadSalesLinesStateFromPayload(event.data.payload, { skipParentPost: true, silent: true, force: true, dataSource: 'firebase' });
     } finally {
         suppressSalesLinesParentPost = false;
     }
@@ -110,6 +111,12 @@ window.addEventListener('message', (event) => {
 
 applyLocalPersonalizationPreferences();
 initSalesLinesTabCoordinator();
+setSalesLinesDataSourceState({
+    dataSource: 'unknown',
+    firebaseLoadState: 'loading',
+    warning: 'Firebase merkezi veri doğrulanana kadar düzenleme kapalı.',
+    context: 'bootstrap-start'
+});
 scheduleTodayOutputsMidnightRefresh();
 getEmbeddedParentWindow()?.postMessage?.({ type: 'sales-lines-ready' }, '*');
 Promise.resolve(loadSalesLinesState()).finally(() => {

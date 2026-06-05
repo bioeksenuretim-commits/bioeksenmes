@@ -855,6 +855,8 @@ var firebaseSync = {
             savedAt: meta?.savedAt || new Date().toISOString(),
             meta: {
                 ...this.sanitizeSalesLinesMetaForStorage(meta?.meta || {}),
+                firebaseMetaRowCount: Number(meta?.rowCount || 0) || allOrders.length,
+                firebaseRowsCount: allOrders.length,
                 todayOutputOrderIds: todayOutputIds,
                 todayOutputsDate: this.salesLinesTodayOutputsCache?.dateKey || this.getSalesLinesTodayOutputDateKey(),
                 todayOutputsMeta: this.cloneData(this.salesLinesTodayOutputsCache?.meta || {})

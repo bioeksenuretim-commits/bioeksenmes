@@ -54,6 +54,14 @@ let embeddedPermissionState = {
     canDeleteSalesLines: null,
     currentUser: null
 };
+let salesLinesDataSource = 'unknown';
+let salesLinesFirebaseLoadState = 'pending';
+let salesLinesFirebaseLoadedAt = '';
+let salesLinesIndexedDbRowCount = null;
+let salesLinesLocalCacheRowCount = null;
+let salesLinesFirebaseRowCount = null;
+let salesLinesFirebaseMetaRowCount = null;
+let salesLinesDataSourceWarning = '';
 let cloudSyncPollTimer = null;
 let cloudSyncInFlight = false;
 let lastCloudPayloadSignature = '';
@@ -164,6 +172,95 @@ function setSalesLinesTabReadonly(readonly, peer = null) {
     }
 }
 
+function hasPendingSalesLinesLocalChanges() {
+    return pendingChangedSalesLineRowIds.size > 0
+        || pendingDeletedSalesLineRowIds.size > 0
+        || pendingLocalSalesLineEdits.size > 0
+        || Object.keys(pendingSalesLineRowBaseMeta || {}).length > 0
+        || readPendingSalesLinesPatches().length > 0;
+}
+
+function isSalesLinesFirebaseVerified() {
+    return salesLinesDataSource === 'firebase' && salesLinesFirebaseLoadState === 'loaded';
+}
+
+function isSalesLinesFirebaseCentralLoaded() {
+    return salesLinesFirebaseLoadState === 'loaded'
+        && (salesLinesDataSource === 'firebase' || salesLinesDataSource === 'merged');
+}
+
+function getSalesLinesDataSourceLabel() {
+    if (salesLinesDataSource === 'firebase') return 'Firebase doğrulandı';
+    if (salesLinesFirebaseLoadState === 'loading') return 'Firebase merkezi veri yükleniyor';
+    if (salesLinesDataSource === 'indexeddb') return 'Yerel cache gösteriliyor';
+    if (salesLinesDataSource === 'merged') return 'Yerel değişikliklerle birleştirilmiş veri';
+    return 'Veri kaynağı hazırlanıyor';
+}
+
+function updateSalesLinesDataSourceUi() {
+    const panel = document.getElementById('salesLinesDataSourcePanel');
+    if (!panel) return;
+    const title = document.getElementById('salesLinesDataSourceTitle');
+    const detail = document.getElementById('salesLinesDataSourceDetail');
+    const warning = document.getElementById('salesLinesDataSourceWarning');
+    const reloadBtn = document.getElementById('salesLinesForceReloadBtn');
+    const verified = isSalesLinesFirebaseVerified();
+    const pending = hasPendingSalesLinesLocalChanges();
+
+    panel.dataset.state = verified ? 'verified' : (salesLinesDataSource === 'indexeddb' ? 'cache' : 'loading');
+    panel.style.display = 'flex';
+    if (title) title.textContent = getSalesLinesDataSourceLabel();
+    if (detail) {
+        const pieces = [
+            `Ortam: ${getSalesLinesFirebaseEnv()}`,
+            `Path: ${getSalesLinesFirebasePath('salesLines/v2')}`,
+            `Ekran: ${Array.isArray(allOrders) ? allOrders.length : 0}`,
+            `Firebase rows: ${salesLinesFirebaseRowCount ?? '-'}`,
+            `Firebase meta: ${salesLinesFirebaseMetaRowCount ?? '-'}`,
+            `IndexedDB: ${salesLinesIndexedDbRowCount ?? '-'}`,
+            salesLinesFirebaseLoadedAt ? `Yüklendi: ${new Date(salesLinesFirebaseLoadedAt).toLocaleTimeString('tr-TR')}` : ''
+        ].filter(Boolean);
+        detail.textContent = pieces.join(' | ');
+    }
+    if (warning) {
+        const lockText = !verified && !pending ? 'Merkezi veri doğrulanana kadar düzenleme kapalı.' : '';
+        const sourceWarning = canForceReloadSalesLinesFromFirebase() ? salesLinesDataSourceWarning : '';
+        warning.textContent = [sourceWarning, lockText].filter(Boolean).join(' ');
+        warning.style.display = warning.textContent ? 'block' : 'none';
+    }
+    if (reloadBtn) reloadBtn.style.display = canForceReloadSalesLinesFromFirebase() ? 'inline-flex' : 'none';
+    document.body.classList.toggle('sales-lines-central-pending', !verified && !pending);
+}
+
+function logSalesLinesDataSourceDebug(context = '') {
+    console.warn('Sales lines data source:', {
+        context,
+        currentEnv: getSalesLinesFirebaseEnv(),
+        salesLinesV2Path: getSalesLinesFirebasePath('salesLines/v2'),
+        firebaseRowsCount: salesLinesFirebaseRowCount,
+        firebaseMetaRowCount: salesLinesFirebaseMetaRowCount,
+        indexedDbRowCount: salesLinesIndexedDbRowCount,
+        localCacheRowCount: salesLinesLocalCacheRowCount,
+        allOrdersLength: Array.isArray(allOrders) ? allOrders.length : 0,
+        dataSource: salesLinesDataSource,
+        firebaseLoadState: salesLinesFirebaseLoadState,
+        firebaseLoadedAt: salesLinesFirebaseLoadedAt
+    });
+}
+
+function setSalesLinesDataSourceState(nextState = {}) {
+    if (nextState.dataSource) salesLinesDataSource = nextState.dataSource;
+    if (nextState.firebaseLoadState) salesLinesFirebaseLoadState = nextState.firebaseLoadState;
+    if (Object.prototype.hasOwnProperty.call(nextState, 'firebaseLoadedAt')) salesLinesFirebaseLoadedAt = nextState.firebaseLoadedAt || '';
+    if (Object.prototype.hasOwnProperty.call(nextState, 'indexedDbRowCount')) salesLinesIndexedDbRowCount = nextState.indexedDbRowCount;
+    if (Object.prototype.hasOwnProperty.call(nextState, 'localCacheRowCount')) salesLinesLocalCacheRowCount = nextState.localCacheRowCount;
+    if (Object.prototype.hasOwnProperty.call(nextState, 'firebaseRowCount')) salesLinesFirebaseRowCount = nextState.firebaseRowCount;
+    if (Object.prototype.hasOwnProperty.call(nextState, 'firebaseMetaRowCount')) salesLinesFirebaseMetaRowCount = nextState.firebaseMetaRowCount;
+    if (Object.prototype.hasOwnProperty.call(nextState, 'warning')) salesLinesDataSourceWarning = nextState.warning || '';
+    updateSalesLinesDataSourceUi();
+    logSalesLinesDataSourceDebug(nextState.context || 'state-update');
+}
+
 function postSalesLinesTabMessage(type, extra = {}) {
     if (!salesLinesTabChannel) return;
     try {
@@ -189,6 +286,11 @@ function reactivateSalesLinesTab() {
 }
 
 function ensureSalesLinesWritable(message = 'Bu sekme salt okunur modda. Yazma yapmak iÃ§in bu sekmeyi yeniden aktif yapÄ±n.') {
+    if (!isSalesLinesFirebaseVerified() && !hasPendingSalesLinesLocalChanges()) {
+        updateSalesLinesDataSourceUi();
+        showToast('Merkezi veri yükleniyor. Lütfen bekleyin.', 'warning');
+        return false;
+    }
     if (!salesLinesTabReadonly) return true;
     showToast(message, 'warning');
     return false;
@@ -198,6 +300,12 @@ function isDevSalesLinesUser() {
     const user = embeddedPermissionState?.currentUser || getParentSessionUser() || {};
     const role = String(user.role || '').trim().toLowerCase();
     return role === 'dev' || role === 'developer';
+}
+
+function canForceReloadSalesLinesFromFirebase() {
+    const user = embeddedPermissionState?.currentUser || getParentSessionUser() || {};
+    const role = String(user.role || '').trim().toLowerCase();
+    return role === 'admin' || role === 'dev' || role === 'developer';
 }
 
 function ensureSalesLinesEnvironmentWritable() {
@@ -1783,6 +1891,10 @@ async function queuePendingSalesLinesPatch(payload, changedRowIds = [], deletedR
 
 async function flushPendingSalesLinesPatches() {
     if (salesLinesPendingFlushInFlight) return false;
+    if (!isSalesLinesFirebaseCentralLoaded()) {
+        console.warn('Bekleyen satis satiri patchleri Firebase merkezi veri dogrulanmadan gonderilmedi.');
+        return false;
+    }
 
     const patches = readPendingSalesLinesPatches();
     if (patches.length === 0) return true;
@@ -1904,6 +2016,14 @@ function persistSalesLinesPayloadLocally(payload) {
 
 function getSalesLinesPayloadRowCount(payload) {
     return Number(payload?.meta?.rowCount || 0) || (Array.isArray(payload?.allOrders) ? payload.allOrders.length : 0);
+}
+
+function getSalesLinesPayloadActualRowCount(payload) {
+    return Array.isArray(payload?.allOrders) ? payload.allOrders.length : 0;
+}
+
+function getSalesLinesPayloadFirebaseMetaRowCount(payload) {
+    return Number(payload?.meta?.firebaseMetaRowCount || payload?.meta?.rowCount || 0) || 0;
 }
 
 function getCurrentSalesLineActor() {
@@ -2421,7 +2541,11 @@ function parseSalesLinesV2Payload(raw) {
     return {
         version: raw.meta?.version || 2,
         savedAt: raw.meta?.savedAt || new Date().toISOString(),
-        meta: raw.meta?.meta || {},
+        meta: {
+            ...(raw.meta?.meta || {}),
+            firebaseMetaRowCount: Number(raw.meta?.rowCount || 0) || allOrders.length,
+            firebaseRowsCount: allOrders.length
+        },
         editedLog,
         columnOrder: Array.isArray(raw.meta?.columnOrder) ? raw.meta.columnOrder : [],
         allOrders
@@ -2767,6 +2891,13 @@ async function saveSalesLinesState(meta = {}, options = {}) {
         [...changedRowIds, ...deletedRowIds].forEach(id => {
             if (!conflictIds.has(id)) delete pendingSalesLineRowBaseMeta[id];
         });
+        if (!hasPendingSalesLinesLocalChanges() && salesLinesFirebaseLoadState === 'loaded') {
+            setSalesLinesDataSourceState({
+                dataSource: 'firebase',
+                warning: '',
+                context: 'local-changes-saved'
+            });
+        }
         return saved;
     } catch (error) {
         console.error('Sales lines state save error:', error);
@@ -2798,6 +2929,25 @@ window.getSalesLinesBackupPayload = function () {
 
 function loadSalesLinesStateFromPayload(payload, options = {}) {
     try {
+        const incomingSource = options.dataSource || options.source || 'unknown';
+        const isFirebaseSource = incomingSource === 'firebase';
+        const incomingActualRows = getSalesLinesPayloadActualRowCount(payload);
+        const incomingMetaRows = isFirebaseSource
+            ? getSalesLinesPayloadFirebaseMetaRowCount(payload)
+            : getSalesLinesPayloadRowCount(payload);
+        if (isFirebaseSource && incomingActualRows === 0 && incomingMetaRows > 0) {
+            setSalesLinesDataSourceState({
+                dataSource: salesLinesDataSource === 'indexeddb' ? 'indexeddb' : 'unknown',
+                firebaseLoadState: 'error',
+                firebaseRowCount: 0,
+                firebaseMetaRowCount: incomingMetaRows,
+                warning: 'Firebase 0 satır döndürdü ama meta rowCount dolu. Path/listener/rules kontrol edilmeli.',
+                context: 'firebase-empty-with-meta'
+            });
+            showToast('Merkezi veri okunamadı. Düzenleme kapalı kaldı.', 'error', 6000);
+            return false;
+        }
+
         if (!options.forceDuringEdit && isSalesLineInlineEditActive()) {
             queueSalesLinesRemotePayload(payload, options);
             return false;
@@ -2869,6 +3019,26 @@ function loadSalesLinesStateFromPayload(payload, options = {}) {
             document.getElementById('uploadSection').style.display = 'block';
             lastLoadedSalesLinesPayloadSignature = incomingSignature;
             lastCloudPayloadSignature = incomingSignature;
+            if (isFirebaseSource) {
+                setSalesLinesDataSourceState({
+                    dataSource: 'firebase',
+                    firebaseLoadState: 'loaded',
+                    firebaseLoadedAt: new Date().toISOString(),
+                    firebaseRowCount: 0,
+                    firebaseMetaRowCount: incomingMetaRows || 0,
+                    warning: '',
+                    context: 'firebase-loaded-empty'
+                });
+            } else if (incomingSource === 'indexeddb' || incomingSource === 'localstorage') {
+                setSalesLinesDataSourceState({
+                    dataSource: 'indexeddb',
+                    firebaseLoadState: salesLinesFirebaseLoadState === 'loaded' ? 'loaded' : 'loading',
+                    indexedDbRowCount: incomingSource === 'indexeddb' ? 0 : salesLinesIndexedDbRowCount,
+                    localCacheRowCount: 0,
+                    warning: salesLinesFirebaseLoadState !== 'loaded' ? 'Yerel cache gösteriliyor. Merkezi veri bekleniyor.' : salesLinesDataSourceWarning,
+                    context: `${incomingSource}-loaded-empty`
+                });
+            }
             return true;
         }
 
@@ -2900,6 +3070,34 @@ function loadSalesLinesStateFromPayload(payload, options = {}) {
         }
         lastLoadedSalesLinesPayloadSignature = incomingSignature;
         lastCloudPayloadSignature = incomingSignature;
+        if (isFirebaseSource) {
+            const warning = salesLinesIndexedDbRowCount !== null
+                && salesLinesIndexedDbRowCount !== mergedIncomingOrders.length
+                ? 'Yerel cache ile merkezi veri farklı. Merkezi veri kullanılıyor.'
+                : '';
+            setSalesLinesDataSourceState({
+                dataSource: hasPendingSalesLinesLocalChanges() ? 'merged' : 'firebase',
+                firebaseLoadState: 'loaded',
+                firebaseLoadedAt: new Date().toISOString(),
+                firebaseRowCount: mergedIncomingOrders.length,
+                firebaseMetaRowCount: incomingMetaRows || mergedIncomingOrders.length,
+                warning,
+                context: 'firebase-loaded'
+            });
+            setTimeout(() => flushPendingSalesLinesPatches(), 250);
+        } else if (incomingSource === 'indexeddb' || incomingSource === 'localstorage') {
+            const rowCount = mergedIncomingOrders.length;
+            setSalesLinesDataSourceState({
+                dataSource: 'indexeddb',
+                firebaseLoadState: salesLinesFirebaseLoadState === 'loaded' ? 'loaded' : 'loading',
+                indexedDbRowCount: incomingSource === 'indexeddb' ? rowCount : salesLinesIndexedDbRowCount,
+                localCacheRowCount: rowCount,
+                warning: salesLinesFirebaseLoadState !== 'loaded' ? 'Yerel cache ile merkezi veri farklı. Merkezi veri bekleniyor.' : salesLinesDataSourceWarning,
+                context: `${incomingSource}-loaded`
+            });
+        } else {
+            updateSalesLinesDataSourceUi();
+        }
         return true;
     } catch (error) {
         console.error('Sales lines state load error:', error);
@@ -2909,9 +3107,14 @@ function loadSalesLinesStateFromPayload(payload, options = {}) {
 
 async function loadSalesLinesState() {
     try {
+        setSalesLinesDataSourceState({
+            firebaseLoadState: salesLinesFirebaseLoadState === 'loaded' ? 'loaded' : 'loading',
+            context: 'local-load-start'
+        });
         const indexedPayload = await loadSalesLinesPayloadFromIndexedDb();
         if (indexedPayload && Array.isArray(indexedPayload.allOrders)) {
-            return loadSalesLinesStateFromPayload(indexedPayload, { skipParentPost: true });
+            salesLinesIndexedDbRowCount = indexedPayload.allOrders.length;
+            return loadSalesLinesStateFromPayload(indexedPayload, { skipParentPost: true, dataSource: 'indexeddb' });
         }
 
         const raw = localStorage.getItem(SALES_LINES_STORAGE_KEY);
@@ -2921,19 +3124,25 @@ async function loadSalesLinesState() {
         if (!Array.isArray(payload?.allOrders)) return false;
         await saveSalesLinesPayloadToIndexedDb(payload);
         persistSalesLinesPayloadLocally(payload);
-        return loadSalesLinesStateFromPayload(payload, { skipParentPost: true });
+        return loadSalesLinesStateFromPayload(payload, { skipParentPost: true, dataSource: 'localstorage' });
     } catch (error) {
         console.error('Sales lines state load error:', error);
         return false;
     }
 }
 
-async function fetchCloudSalesLinesState() {
+async function fetchCloudSalesLinesState(options = {}) {
     if (SALES_LINES_TEST_LOCAL_MODE) return;
     if (cloudSyncInFlight) return;
-    if (isParentSalesLinesRealtimeFresh()) return;
+    const force = !!options.force;
+    if (!force && isSalesLinesFirebaseVerified() && isParentSalesLinesRealtimeFresh()) return;
 
     cloudSyncInFlight = true;
+    setSalesLinesDataSourceState({
+        firebaseLoadState: 'loading',
+        warning: salesLinesDataSource === 'indexeddb' ? 'Yerel cache ile merkezi veri farklı. Merkezi veri bekleniyor.' : salesLinesDataSourceWarning,
+        context: force ? 'firebase-force-load-start' : 'firebase-load-start'
+    });
     try {
         const parentSync = getParentFirebaseSyncBridge();
         let payload = null;
@@ -2949,21 +3158,22 @@ async function fetchCloudSalesLinesState() {
         }
 
         if (payload) {
-            if (!shouldApplyIncomingSalesLinesPayload(payload, { silent: true })) {
+            if (!shouldApplyIncomingSalesLinesPayload(payload, { silent: true, force: true })) {
                 const localPayload = readLocalSalesLinesPayload();
                 if (localPayload) lastCloudPayloadSignature = getSalesLinesPayloadSignature(localPayload);
                 return;
             }
 
             const parentRemoteSignature = getSalesLinesPayloadSignature(payload);
-            if (!parentRemoteSignature || parentRemoteSignature === lastCloudPayloadSignature) return;
+            if (!parentRemoteSignature || (parentRemoteSignature === lastCloudPayloadSignature && isSalesLinesFirebaseVerified() && !force)) return;
 
             suppressSalesLinesParentPost = true;
             try {
-                loadSalesLinesStateFromPayload(payload, { skipParentPost: true, silent: true });
+                loadSalesLinesStateFromPayload(payload, { skipParentPost: true, silent: true, force: true, dataSource: 'firebase' });
             } finally {
                 suppressSalesLinesParentPost = false;
             }
+            if (options.toast) showToast('Merkezi veri yeniden yüklendi.', 'success');
             return;
         }
 
@@ -2989,27 +3199,42 @@ async function fetchCloudSalesLinesState() {
         }
         if (!payload) return;
 
-        if (!shouldApplyIncomingSalesLinesPayload(payload, { silent: true })) {
+        if (!shouldApplyIncomingSalesLinesPayload(payload, { silent: true, force: true })) {
             const localPayload = readLocalSalesLinesPayload();
             if (localPayload) lastCloudPayloadSignature = getSalesLinesPayloadSignature(localPayload);
             return;
         }
 
         const remoteSignature = getSalesLinesPayloadSignature(payload);
-        if (!remoteSignature || remoteSignature === lastCloudPayloadSignature) return;
+        if (!remoteSignature || (remoteSignature === lastCloudPayloadSignature && isSalesLinesFirebaseVerified() && !force)) return;
 
         suppressSalesLinesParentPost = true;
         try {
-            loadSalesLinesStateFromPayload(payload, { skipParentPost: true, silent: true });
+            loadSalesLinesStateFromPayload(payload, { skipParentPost: true, silent: true, force: true, dataSource: 'firebase' });
         } finally {
             suppressSalesLinesParentPost = false;
         }
+        if (options.toast) showToast('Merkezi veri yeniden yüklendi.', 'success');
     } catch (error) {
         console.warn('Sales lines cloud poll hatasi:', error);
+        setSalesLinesDataSourceState({
+            firebaseLoadState: 'error',
+            warning: 'Firebase merkezi veri yüklenemedi. Düzenleme kapalı.',
+            context: 'firebase-load-error'
+        });
     } finally {
         cloudSyncInFlight = false;
     }
 }
+
+async function forceReloadSalesLinesFromFirebase() {
+    if (cloudSyncInFlight) {
+        showToast('Merkezi veri zaten yükleniyor.', 'info');
+        return false;
+    }
+    return fetchCloudSalesLinesState({ force: true, toast: true });
+}
+window.forceReloadSalesLinesFromFirebase = forceReloadSalesLinesFromFirebase;
 
 function isParentSalesLinesRealtimeFresh() {
     try {
