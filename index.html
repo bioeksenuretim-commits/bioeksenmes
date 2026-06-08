@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/css/modules.css">
-    <link rel="stylesheet" href="/css/app-main.css?v=20260608-stock-kit-management">
+    <link rel="stylesheet" href="/css/app-main.css?v=20260608-stock-kit-dbkey-export">
 
     <script defer src="/js/excel-loader.js?v=20260513-local-vendor"></script>
 
@@ -584,6 +584,7 @@
                     <div class="final-product-stock-actions">
                         <button type="button" class="btn btn-primary btn-sm" onclick="openFinalProductStockAddModal()">Stok Kit Ekle</button>
                         <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('finalProductStockExcelInput').click()">Excel ile Ekle</button>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="exportFinalProductStockExcel()">Excel İndir</button>
                         <input type="file" id="finalProductStockExcelInput" accept=".xlsx,.xls" hidden onchange="importFinalProductStockExcel(this)">
                     </div>
                     <div class="final-product-summary" id="finalProductSummary"></div>
@@ -1303,6 +1304,6 @@
     <div class="toast-container" id="toastContainer"></div>
 
     <script defer src="/js/orders-renderer-v1.js?v=20260601-sales-lines-sync-guard"></script>
-    <script defer src="/js/app-main-v4.js?v=20260608-stock-kit-management"></script>
+    <script defer src="/js/app-main-v4.js?v=20260608-stock-kit-dbkey-export"></script>
 </body>
 </html>

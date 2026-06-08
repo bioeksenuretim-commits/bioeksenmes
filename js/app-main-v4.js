@@ -1430,8 +1430,8 @@
 
             if (rows.some(row => row.isWarehouseItem)) {
                 tbody.innerHTML = rows.map(row => {
-                    const encodedId = encodeURIComponent(row.id || '');
-                    const canEditStock = isAdmin() && row.bin === 'STOK KİTLER' && row.id;
+                    const encodedId = encodeURIComponent(row.dbKey || '');
+                    const canEditStock = isAdmin() && row.bin === 'STOK KİTLER' && row.dbKey;
                     const quantityCell = canEditStock
                         ? `<input class="final-product-stock-quantity-input" type="number" min="0.001" step="0.001" value="${esc(String(row.quantityValue || 0))}" data-final-stock-item-qty="${esc(encodedId)}">`
                         : esc(String(row.quantityValue || 0));
@@ -1681,6 +1681,7 @@
         function normalizeFinalProductStockItem(item = {}, itemKey = '') {
             return {
                 id: String(item.id || itemKey || ''),
+                dbKey: String(itemKey || item.id || ''),
                 key: String(item.id || itemKey || `${item.bin || ''}-${item.productNo || ''}-${item.lotNo || ''}-${item.orderNo || ''}`).replace(/[^a-zA-Z0-9_-]/g, '_'),
                 isWarehouseItem: true,
                 bin: String(item.bin || '').trim(),
@@ -1762,6 +1763,28 @@
 
         function encodeFinalProductManagementKey(value) {
             return encodeURIComponent(String(value || '').trim() || 'empty').replace(/\./g, '%2E');
+        }
+
+        function decodeFinalProductManagementKey(value) {
+            try {
+                return decodeURIComponent(String(value || ''));
+            } catch (_) {
+                return String(value || '');
+            }
+        }
+
+        function resolveFinalProductStockItemDbKey(items, requestedKey) {
+            if (!items || typeof items !== 'object') return '';
+            const key = String(requestedKey || '');
+            if (Object.prototype.hasOwnProperty.call(items, key)) return key;
+            const decodedKey = decodeFinalProductManagementKey(key);
+            return Object.keys(items).find(itemKey => {
+                const item = items[itemKey] || {};
+                return String(item.id || '') === key
+                    || String(item.id || '') === decodedKey
+                    || decodeFinalProductManagementKey(itemKey) === key
+                    || decodeFinalProductManagementKey(itemKey) === decodedKey;
+            }) || '';
         }
 
         function buildManagedFinalProductStockItemKey(productNo, market, lotNo) {
@@ -1988,6 +2011,52 @@
             }
         }
 
+        async function exportFinalProductStockExcel() {
+            const rows = filterFinalProductRows(finalProductQuantityRows);
+            if (rows.length === 0) {
+                showToast('Excel olarak indirilecek kayıt bulunamadı.', 'warning');
+                return;
+            }
+            try {
+                await ensureSheetJs();
+                const exportRows = rows.map(row => ({
+                    'Depo Gözü': row.bin || '',
+                    'Katalog No': row.productNo || '',
+                    'Açıklama': row.rxnName || '',
+                    'Lot No': row.lotNo || '',
+                    'Pazar': row.market || '',
+                    'Miktar': Number(row.quantityValue) || 0,
+                    'Sipariş No': row.orderNo || '',
+                    'Satış Satırı ID': row.salesLineId || row.sourceSalesLineId || '',
+                    'Durum / Kaynak': row.status || row.source || '',
+                    'Son Hareket': formatFinalProductStockDate(row.updatedAt || row.createdAt || ''),
+                    'Kullanıcı': row.updatedBy || row.createdBy || ''
+                }));
+                const worksheet = XLSX.utils.json_to_sheet(exportRows);
+                worksheet['!cols'] = [
+                    { wch: 24 },
+                    { wch: 22 },
+                    { wch: 48 },
+                    { wch: 24 },
+                    { wch: 15 },
+                    { wch: 12 },
+                    { wch: 20 },
+                    { wch: 34 },
+                    { wch: 28 },
+                    { wch: 22 },
+                    { wch: 18 }
+                ];
+                const workbook = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(workbook, worksheet, 'Son Ürün Miktarları');
+                const dateKey = new Date().toISOString().slice(0, 10);
+                XLSX.writeFile(workbook, `son_urun_miktarlari_${dateKey}.xlsx`);
+                showToast(`${exportRows.length} kayıt Excel olarak indirildi.`, 'success');
+            } catch (error) {
+                console.error('Son ürün miktarları Excel indirilemedi:', error);
+                showToast('Excel indirilemedi.', 'error');
+            }
+        }
+
         async function saveFinalProductStockItemQuantity(encodedItemId) {
             if (!isAdmin()) return;
             const itemId = decodeURIComponent(String(encodedItemId || ''));
@@ -2006,7 +2075,8 @@
             try {
                 const result = await firebase.database().ref(getFirebaseDbPath('finalProductStock')).transaction(current => {
                     const root = current && typeof current === 'object' ? current : {};
-                    const item = root.items?.[itemId];
+                    const resolvedItemId = resolveFinalProductStockItemDbKey(root.items, itemId);
+                    const item = root.items?.[resolvedItemId];
                     if (!item || String(item.bin || '') !== 'STOK KİTLER') {
                         missing = true;
                         return;
@@ -2014,7 +2084,7 @@
                     const previousQty = Number(item.quantity) || 0;
                     if (previousQty === nextQty) return root;
                     changed = true;
-                    root.items[itemId] = {
+                    root.items[resolvedItemId] = {
                         ...item,
                         quantity: nextQty,
                         source: 'manual_stock_quantity_update',
@@ -2027,7 +2097,7 @@
                         key: movementKey,
                         type: 'manual_stock_quantity_update',
                         active: true,
-                        itemKey: itemId,
+                        itemKey: resolvedItemId,
                         productNo: item.productNo || '',
                         description: item.description || '',
                         lotNo: item.lotNo || '',
@@ -2059,7 +2129,7 @@
         async function deleteFinalProductStockItem(encodedItemId) {
             if (!isAdmin()) return;
             const itemId = decodeURIComponent(String(encodedItemId || ''));
-            const localRow = finalProductQuantityRows.find(row => row.id === itemId);
+            const localRow = finalProductQuantityRows.find(row => row.dbKey === itemId);
             if (!confirm(`${localRow?.productNo || 'Bu stok kit'} kaydı silinsin mi?`)) return;
 
             const actor = getFinalProductStockActor();
@@ -2069,19 +2139,20 @@
             try {
                 const result = await firebase.database().ref(getFirebaseDbPath('finalProductStock')).transaction(current => {
                     const root = current && typeof current === 'object' ? current : {};
-                    const item = root.items?.[itemId];
+                    const resolvedItemId = resolveFinalProductStockItemDbKey(root.items, itemId);
+                    const item = root.items?.[resolvedItemId];
                     if (!item || String(item.bin || '') !== 'STOK KİTLER') {
                         missing = true;
                         return;
                     }
                     const previousQty = Number(item.quantity) || 0;
-                    delete root.items[itemId];
+                    delete root.items[resolvedItemId];
                     root.movements = root.movements && typeof root.movements === 'object' ? root.movements : {};
                     root.movements[movementKey] = {
                         key: movementKey,
                         type: 'manual_stock_delete',
                         active: true,
-                        itemKey: itemId,
+                        itemKey: resolvedItemId,
                         productNo: item.productNo || '',
                         description: item.description || '',
                         lotNo: item.lotNo || '',
@@ -2110,6 +2181,7 @@
         window.closeFinalProductStockAddModal = closeFinalProductStockAddModal;
         window.submitFinalProductStockAdd = submitFinalProductStockAdd;
         window.importFinalProductStockExcel = importFinalProductStockExcel;
+        window.exportFinalProductStockExcel = exportFinalProductStockExcel;
         window.saveFinalProductStockItemQuantity = saveFinalProductStockItemQuantity;
         window.deleteFinalProductStockItem = deleteFinalProductStockItem;
 
