@@ -1433,7 +1433,7 @@
                     const encodedId = encodeURIComponent(row.dbKey || '');
                     const canEditStock = isAdmin() && row.bin === 'STOK KİTLER' && row.dbKey;
                     const quantityCell = canEditStock
-                        ? `<input class="final-product-stock-quantity-input" type="number" min="0.001" step="0.001" value="${esc(String(row.quantityValue || 0))}" data-final-stock-item-qty="${esc(encodedId)}">`
+                        ? `<input class="final-product-stock-quantity-input" type="number" min="0.001" step="0.001" value="${esc(String(row.quantityValue || 0))}" data-final-stock-item-qty="${esc(encodedId)}" data-final-stock-product="${esc(row.productNo || '')}" data-final-stock-lot="${esc(row.lotNo || '')}" data-final-stock-market="${esc(row.market || '')}">`
                         : esc(String(row.quantityValue || 0));
                     const actionCell = canEditStock
                         ? `<div class="final-product-stock-row-actions">
@@ -1747,6 +1747,7 @@
                 .replace(/[^a-z0-9]/g, '');
             if (normalized === 'yurtici' || normalized === 'domestic' || normalized === 'icpazar') return 'YURT İÇİ';
             if (normalized === 'yurtdisi' || normalized === 'international' || normalized === 'dispazar') return 'YURT DIŞI';
+            if (normalized === 'belirtilmedi' || normalized === 'unknown' || normalized === 'bilinmiyor') return 'BELİRTİLMEDİ';
             return '';
         }
 
@@ -1754,9 +1755,10 @@
             if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
             const raw = String(value ?? '').trim();
             if (!raw) return 0;
-            const normalized = raw.includes(',')
-                ? raw.replace(/\./g, '').replace(',', '.')
-                : raw;
+            const numericPrefix = raw.match(/^[+-]?(?:\d+(?:[.,]\d+)?|[.,]\d+)/)?.[0] || raw;
+            const normalized = numericPrefix.includes(',')
+                ? numericPrefix.replace(/\./g, '').replace(',', '.')
+                : numericPrefix;
             const parsed = Number(normalized);
             return Number.isFinite(parsed) ? parsed : 0;
         }
@@ -1773,17 +1775,31 @@
             }
         }
 
-        function resolveFinalProductStockItemDbKey(items, requestedKey) {
+        function resolveFinalProductStockItemDbKey(items, requestedKey, identity = {}) {
             if (!items || typeof items !== 'object') return '';
             const key = String(requestedKey || '');
             if (Object.prototype.hasOwnProperty.call(items, key)) return key;
             const decodedKey = decodeFinalProductManagementKey(key);
-            return Object.keys(items).find(itemKey => {
+            const keyMatch = Object.keys(items).find(itemKey => {
                 const item = items[itemKey] || {};
                 return String(item.id || '') === key
                     || String(item.id || '') === decodedKey
                     || decodeFinalProductManagementKey(itemKey) === key
                     || decodeFinalProductManagementKey(itemKey) === decodedKey;
+            });
+            if (keyMatch) return keyMatch;
+
+            const productNo = String(identity.productNo || '').trim().toLocaleUpperCase('tr');
+            const lotNo = String(identity.lotNo || '').trim().toLocaleUpperCase('tr');
+            const market = String(identity.market || '').trim().toLocaleUpperCase('tr');
+            if (!productNo) return '';
+            return Object.keys(items).find(itemKey => {
+                const item = items[itemKey] || {};
+                if (String(item.bin || '') !== 'STOK KİTLER') return false;
+                if (String(item.productNo || '').trim().toLocaleUpperCase('tr') !== productNo) return false;
+                if (String(item.lotNo || '').trim().toLocaleUpperCase('tr') !== lotNo) return false;
+                const itemMarket = String(item.market || item.customerMarket || '').trim().toLocaleUpperCase('tr');
+                return !market || itemMarket === market;
             }) || '';
         }
 
@@ -1826,16 +1842,17 @@
             }
         }
 
-        function normalizeFinalProductStockEntry(entry, rowNumber = 0) {
+        function normalizeFinalProductStockEntry(entry, rowNumber = 0, options = {}) {
             const productNo = String(entry?.productNo || '').trim().toLocaleUpperCase('tr');
-            const market = normalizeFinalProductStockMarket(entry?.market);
+            const market = normalizeFinalProductStockMarket(entry?.market)
+                || (options.allowMissingMarket ? 'BELİRTİLMEDİ' : '');
             const lotNo = String(entry?.lotNo || '').trim().toLocaleUpperCase('tr');
             const quantity = parseFinalProductStockQuantity(entry?.quantity);
             const prefix = rowNumber > 0 ? `${rowNumber}. satır: ` : '';
 
             if (!productNo) throw new Error(`${prefix}Katalog numarası eksik.`);
             if (!market) throw new Error(`${prefix}Yurt İçi/Yurt Dışı değeri geçersiz.`);
-            if (!lotNo) throw new Error(`${prefix}Lot numarası eksik.`);
+            if (!lotNo && !options.allowMissingLot) throw new Error(`${prefix}Lot numarası eksik.`);
             if (!(quantity > 0)) throw new Error(`${prefix}Miktar sıfırdan büyük olmalıdır.`);
 
             return {
@@ -1869,13 +1886,18 @@
             const normalizedEntries = aggregateFinalProductStockEntries(entries.map((entry, index) =>
                 normalizeFinalProductStockEntry(
                     entry,
-                    entry.rowNumber || (source === 'excel_stock_add' ? index + 2 : 0)
+                    entry.rowNumber || (source === 'excel_stock_add' ? index + 2 : 0),
+                    {
+                        allowMissingMarket: source === 'excel_stock_add',
+                        allowMissingLot: source === 'excel_stock_add'
+                    }
                 )
             ));
             const actor = getFinalProductStockActor();
             const actionId = `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
             const now = new Date().toISOString();
             const rootRef = firebase.database().ref(getFirebaseDbPath('finalProductStock'));
+            await rootRef.once('value');
             const result = await rootRef.transaction(current => {
                 const root = current && typeof current === 'object' ? current : {};
                 root.items = root.items && typeof root.items === 'object' ? root.items : {};
@@ -1995,7 +2017,7 @@
 
                 const entries = rows.map((row, index) => ({
                     rowNumber: index + 2,
-                    productNo: getFinalProductExcelCell(row, ['Katalog No', 'Katalog Numarası', 'Ürün No', 'No']),
+                    productNo: getFinalProductExcelCell(row, ['Katalog No', 'Katalog Numarası', 'Katalag Numarası', 'Ürün No', 'No']),
                     market: getFinalProductExcelCell(row, ['Yurt İçi/Yurt Dışı', 'Yurtiçi/Yurtdışı', 'Pazar', 'Market']),
                     lotNo: getFinalProductExcelCell(row, ['Lot No', 'Lot']),
                     quantity: getFinalProductExcelCell(row, ['Miktar', 'Sayı', 'Adet', 'Quantity']),
@@ -2061,6 +2083,11 @@
             if (!isAdmin()) return;
             const itemId = decodeURIComponent(String(encodedItemId || ''));
             const input = document.querySelector(`[data-final-stock-item-qty="${String(encodedItemId || '').replace(/"/g, '\\"')}"]`);
+            const identity = {
+                productNo: input?.dataset.finalStockProduct || '',
+                lotNo: input?.dataset.finalStockLot || '',
+                market: input?.dataset.finalStockMarket || ''
+            };
             const nextQty = parseFinalProductStockQuantity(input?.value);
             if (!(nextQty > 0)) {
                 showToast('Miktar sıfırdan büyük olmalıdır. Silmek için Sil butonunu kullanın.', 'warning');
@@ -2073,9 +2100,12 @@
             let changed = false;
             let missing = false;
             try {
-                const result = await firebase.database().ref(getFirebaseDbPath('finalProductStock')).transaction(current => {
+                const rootRef = firebase.database().ref(getFirebaseDbPath('finalProductStock'));
+                await rootRef.once('value');
+                const result = await rootRef.transaction(current => {
+                    missing = false;
                     const root = current && typeof current === 'object' ? current : {};
-                    const resolvedItemId = resolveFinalProductStockItemDbKey(root.items, itemId);
+                    const resolvedItemId = resolveFinalProductStockItemDbKey(root.items, itemId, identity);
                     const item = root.items?.[resolvedItemId];
                     if (!item || String(item.bin || '') !== 'STOK KİTLER') {
                         missing = true;
@@ -2137,9 +2167,16 @@
             const movementKey = encodeFinalProductManagementKey(`manual_stock_delete|${itemId}|${Date.now()}_${Math.random().toString(36).slice(2, 9)}`);
             let missing = false;
             try {
-                const result = await firebase.database().ref(getFirebaseDbPath('finalProductStock')).transaction(current => {
+                const rootRef = firebase.database().ref(getFirebaseDbPath('finalProductStock'));
+                await rootRef.once('value');
+                const result = await rootRef.transaction(current => {
+                    missing = false;
                     const root = current && typeof current === 'object' ? current : {};
-                    const resolvedItemId = resolveFinalProductStockItemDbKey(root.items, itemId);
+                    const resolvedItemId = resolveFinalProductStockItemDbKey(root.items, itemId, {
+                        productNo: localRow?.productNo || '',
+                        lotNo: localRow?.lotNo || '',
+                        market: localRow?.market || ''
+                    });
                     const item = root.items?.[resolvedItemId];
                     if (!item || String(item.bin || '') !== 'STOK KİTLER') {
                         missing = true;

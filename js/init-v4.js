@@ -1,4 +1,4 @@
-const APP_BUILD_VERSION = '20260608-stock-kit-dbkey-export';
+const APP_BUILD_VERSION = '20260608-stock-kit-identity-import';
 window.APP_BUILD_VERSION = APP_BUILD_VERSION;
 console.log('APP_BUILD v4 aktif', APP_BUILD_VERSION);
 /**
