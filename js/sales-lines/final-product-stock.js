@@ -145,10 +145,14 @@ function upsertFinalProductStockItem(root, itemKey, patch, quantityDelta) {
     const actor = getFinalProductStockActor();
     const current = root.items[itemKey] || {};
     const nextQty = (Number(current.quantity) || 0) + (Number(quantityDelta) || 0);
+    if (nextQty <= 0) {
+        delete root.items[itemKey];
+        return;
+    }
     root.items[itemKey] = {
         ...current,
         ...patch,
-        quantity: nextQty < 0 ? 0 : nextQty,
+        quantity: nextQty,
         updatedAt: now,
         updatedBy: actor.paraf,
         updatedByUid: actor.uid,
@@ -160,6 +164,145 @@ function upsertFinalProductStockItem(root, itemKey, patch, quantityDelta) {
 
 function hasFinalProductMovement(root, key) {
     return !!(root?.movements && root.movements[buildFinalProductStockKey(key)]);
+}
+
+function getFinalProductMovement(root, key) {
+    return root?.movements?.[buildFinalProductStockKey(key)] || null;
+}
+
+function isFinalProductMovementActive(root, key) {
+    const movement = getFinalProductMovement(root, key);
+    return !!movement && movement.active !== false;
+}
+
+function activateFinalProductMovement(root, key, movement) {
+    root.movements = root.movements || {};
+    const encodedKey = buildFinalProductStockKey(key);
+    const current = root.movements[encodedKey];
+    const actor = getFinalProductStockActor();
+    if (!current) {
+        root.movements[encodedKey] = {
+            ...movement,
+            active: true,
+            activationVersion: 1
+        };
+        return root.movements[encodedKey];
+    }
+    root.movements[encodedKey] = {
+        ...current,
+        ...movement,
+        active: true,
+        activationVersion: Math.max(1, Number(current.activationVersion) || 1) + (current.active === false ? 1 : 0),
+        reappliedAt: current.active === false ? new Date().toISOString() : current.reappliedAt || '',
+        reappliedBy: current.active === false ? actor.paraf : current.reappliedBy || ''
+    };
+    return root.movements[encodedKey];
+}
+
+function deactivateFinalProductMovement(root, key) {
+    const encodedKey = buildFinalProductStockKey(key);
+    const movement = root?.movements?.[encodedKey];
+    if (!movement || movement.active === false) return null;
+    const actor = getFinalProductStockActor();
+    root.movements[encodedKey] = {
+        ...movement,
+        active: false,
+        revertedAt: new Date().toISOString(),
+        revertedBy: actor.paraf
+    };
+    return root.movements[encodedKey];
+}
+
+function getFinalProductReservedItemKey(base, lotNo = base.lotNo) {
+    return buildFinalProductStockKey('reserved', base.salesLineId, base.productNo, lotNo, base.orderNo);
+}
+
+function getFinalProductReadyMovementKey(base) {
+    return `ready:${base.salesLineId}:${base.productNo}:${base.lotNo}:${base.orderNo}`;
+}
+
+function getFinalProductReadyExtraOrderMovementKey(base) {
+    return `ready-extra-order:${base.salesLineId}`;
+}
+
+function getFinalProductReadyExtraStockMovementKey(base) {
+    return `ready-extra-stock:${base.salesLineId}`;
+}
+
+function getFinalProductStockToOrderMovementKey(base) {
+    return `stock-to-order:${base.salesLineId}`;
+}
+
+function getFinalProductPickedMovementKey(base) {
+    return `picked:${base.salesLineId}`;
+}
+
+function ensureReservedOrderStockOnce(root, base, source, movementKeyCandidates = []) {
+    const activeMovementKey = movementKeyCandidates.find(key => isFinalProductMovementActive(root, key));
+    if (activeMovementKey) {
+        return { added: false, movementKey: activeMovementKey };
+    }
+
+    const movementKey = movementKeyCandidates[0] || getFinalProductReadyMovementKey(base);
+    const itemKey = getFinalProductReservedItemKey(base);
+    upsertFinalProductStockItem(root, itemKey, {
+        ...base,
+        id: itemKey,
+        bin: FINAL_PRODUCT_ORDER_BIN,
+        source
+    }, base.quantity);
+    activateFinalProductMovement(
+        root,
+        movementKey,
+        buildFinalProductStockMovement(source, base, base.quantity, '', FINAL_PRODUCT_ORDER_BIN, movementKey)
+    );
+    return { added: true, movementKey };
+}
+
+function buildFinalProductMovementBase(movement, fallbackBase) {
+    return {
+        ...fallbackBase,
+        salesLineId: movement?.salesLineId || movement?.sourceSalesLineId || fallbackBase.salesLineId,
+        productNo: movement?.productNo || fallbackBase.productNo,
+        description: movement?.description || fallbackBase.description,
+        lotNo: movement?.lotNo || fallbackBase.lotNo,
+        orderNo: movement?.orderNo || fallbackBase.orderNo,
+        quantity: Number(movement?.quantity) || fallbackBase.quantity
+    };
+}
+
+function revertFinalProductMovementOnce(root, sourceKey, revertType, fallbackBase, reverseMutation) {
+    const sourceMovement = getFinalProductMovement(root, sourceKey);
+    if (!sourceMovement || sourceMovement.active === false) {
+        return { reverted: false, skipped: true };
+    }
+    const activationVersion = Math.max(1, Number(sourceMovement.activationVersion) || 1);
+    const revertKey = `${revertType}:${sourceKey}:v${activationVersion}`;
+    if (hasFinalProductMovement(root, revertKey)) {
+        deactivateFinalProductMovement(root, sourceKey);
+        return { reverted: false, skipped: true, revertKey };
+    }
+
+    const movementBase = buildFinalProductMovementBase(sourceMovement, fallbackBase);
+    reverseMutation(root, sourceMovement, movementBase);
+    deactivateFinalProductMovement(root, sourceKey);
+    activateFinalProductMovement(
+        root,
+        revertKey,
+        buildFinalProductStockMovement(
+            revertType,
+            movementBase,
+            Number(sourceMovement.quantity) || 0,
+            sourceMovement.toBin || '',
+            sourceMovement.fromBin || '',
+            revertKey,
+            {
+                sourceMovementKey: sourceKey,
+                sourceMovementType: sourceMovement.type || ''
+            }
+        )
+    );
+    return { reverted: true, revertKey };
 }
 
 async function transactFinalProductStock(mutator) {
@@ -199,18 +342,10 @@ async function applyReadyToOrderStock(order) {
         showToast('Stok hareketi için katalog no veya miktar eksik.', 'warning');
         return { ok: false };
     }
-    const movementKey = `ready:${base.salesLineId}:${base.productNo}:${base.lotNo}:${base.orderNo}`;
+    const movementKey = getFinalProductReadyMovementKey(base);
     await transactFinalProductStock(root => {
-        if (hasFinalProductMovement(root, movementKey)) return { root, result: { skipped: true } };
-        const itemKey = buildFinalProductStockKey('reserved', base.salesLineId, base.productNo, base.lotNo, base.orderNo);
-        upsertFinalProductStockItem(root, itemKey, {
-            ...base,
-            id: itemKey,
-            bin: FINAL_PRODUCT_ORDER_BIN,
-            source: 'ready'
-        }, base.quantity);
-        const mKey = buildFinalProductStockKey(movementKey);
-        root.movements[mKey] = buildFinalProductStockMovement('ready', base, base.quantity, '', FINAL_PRODUCT_ORDER_BIN, movementKey);
+        if (isFinalProductMovementActive(root, movementKey)) return { root, result: { skipped: true } };
+        ensureReservedOrderStockOnce(root, base, 'ready', [movementKey]);
         return { root, result: { movementKey } };
     });
     return { ok: true, patch: getFinalProductMovementPatch(order, movementKey) };
@@ -222,15 +357,16 @@ async function applyReadyWithExtraStock(order) {
         showToast('Stok hareketi için katalog no veya miktar eksik.', 'warning');
         return { ok: false };
     }
-    const orderMovementKey = `ready-extra-order:${base.salesLineId}`;
-    const stockMovementKey = `ready-extra-stock:${base.salesLineId}`;
+    const orderMovementKey = getFinalProductReadyExtraOrderMovementKey(base);
+    const stockMovementKey = getFinalProductReadyExtraStockMovementKey(base);
     if (!await ensureFinalProductStockAuth()) {
         showToast('Firebase oturumu doğrulanamadı. Lütfen sayfayı yenileyip tekrar deneyin.', 'warning');
         return { ok: false };
     }
     const existing = (await getFinalProductStockDbRef(`movements/${buildFinalProductStockKey(stockMovementKey)}`).once('value')).val();
-    let stockQty = Number(existing?.quantity) || 0;
-    if (!existing) {
+    const existingIsActive = !!existing && existing.active !== false;
+    let stockQty = existingIsActive ? Number(existing?.quantity) || 0 : 0;
+    if (!existingIsActive) {
         const suggestedQty = String(order?._stockCollectedQty || order?.['Miktar'] || '').trim();
         const answer = prompt('Kaç adet stok toplandı?', suggestedQty);
         if (answer === null) return { ok: false };
@@ -243,24 +379,32 @@ async function applyReadyWithExtraStock(order) {
         }
     }
     await transactFinalProductStock(root => {
-        if (!hasFinalProductMovement(root, orderMovementKey)) {
-            const reservedKey = buildFinalProductStockKey('reserved', base.salesLineId, base.productNo, base.lotNo, base.orderNo);
-            upsertFinalProductStockItem(root, reservedKey, {
-                ...base,
-                id: reservedKey,
-                bin: FINAL_PRODUCT_ORDER_BIN,
-                source: 'ready_with_extra_stock'
-            }, base.quantity);
-            root.movements[buildFinalProductStockKey(orderMovementKey)] = buildFinalProductStockMovement(
-                'ready_with_extra_stock',
-                base,
-                base.quantity,
-                '',
-                FINAL_PRODUCT_ORDER_BIN,
-                orderMovementKey
+        const readyMovementKey = getFinalProductReadyMovementKey(base);
+        const reservation = ensureReservedOrderStockOnce(
+            root,
+            base,
+            'ready_with_extra_stock',
+            [orderMovementKey, readyMovementKey]
+        );
+        if (!isFinalProductMovementActive(root, orderMovementKey)) {
+            activateFinalProductMovement(
+                root,
+                orderMovementKey,
+                buildFinalProductStockMovement(
+                    'ready_with_extra_stock',
+                    base,
+                    reservation.added ? base.quantity : 0,
+                    '',
+                    FINAL_PRODUCT_ORDER_BIN,
+                    orderMovementKey,
+                    {
+                        reservationAdded: reservation.added,
+                        reservedMovementKey: reservation.movementKey
+                    }
+                )
             );
         }
-        if (stockQty > 0 && !hasFinalProductMovement(root, stockMovementKey)) {
+        if (stockQty > 0 && !isFinalProductMovementActive(root, stockMovementKey)) {
             const stockKey = buildFinalProductStockKey('stock', base.productNo, base.lotNo);
             upsertFinalProductStockItem(root, stockKey, {
                 ...base,
@@ -271,13 +415,17 @@ async function applyReadyWithExtraStock(order) {
                 sourceSalesLineId: base.salesLineId,
                 source: 'ready_with_extra_stock'
             }, stockQty);
-            root.movements[buildFinalProductStockKey(stockMovementKey)] = buildFinalProductStockMovement(
-                'ready_with_extra_stock',
-                base,
-                stockQty,
-                '',
-                FINAL_PRODUCT_STOCK_BIN,
-                stockMovementKey
+            activateFinalProductMovement(
+                root,
+                stockMovementKey,
+                buildFinalProductStockMovement(
+                    'ready_with_extra_stock',
+                    base,
+                    stockQty,
+                    '',
+                    FINAL_PRODUCT_STOCK_BIN,
+                    stockMovementKey
+                )
             );
         }
         return { root, result: { movementKey: stockMovementKey } };
@@ -312,13 +460,13 @@ async function applyStockToOrder(order) {
         showToast('Stoktan verilecek ürün için katalog no eksik.', 'warning');
         return { ok: false };
     }
-    const movementKey = `stock-to-order:${base.salesLineId}`;
+    const movementKey = getFinalProductStockToOrderMovementKey(base);
     if (!await ensureFinalProductStockAuth()) {
         showToast('Firebase oturumu doğrulanamadı. Lütfen sayfayı yenileyip tekrar deneyin.', 'warning');
         return { ok: false };
     }
     const existingMovement = (await getFinalProductStockDbRef(`movements/${buildFinalProductStockKey(movementKey)}`).once('value')).val();
-    if (existingMovement) {
+    if (existingMovement && existingMovement.active !== false) {
         return {
             ok: true,
             patch: getFinalProductMovementPatch(order, movementKey, {
@@ -356,7 +504,7 @@ async function applyStockToOrder(order) {
         return { ok: false };
     }
     const tx = await transactFinalProductStock(root => {
-        if (hasFinalProductMovement(root, movementKey)) return { root, result: { skipped: true } };
+        if (isFinalProductMovementActive(root, movementKey)) return { root, result: { skipped: true } };
         const stockItem = root.items[selected.id] || selected;
         const currentQty = Number(stockItem.quantity) || 0;
         if (currentQty < qty) {
@@ -371,14 +519,21 @@ async function applyStockToOrder(order) {
             bin: FINAL_PRODUCT_ORDER_BIN,
             source: 'stock_to_order'
         }, qty);
-        root.movements[buildFinalProductStockKey(movementKey)] = buildFinalProductStockMovement(
-            'stock_to_order',
-            base,
-            qty,
-            FINAL_PRODUCT_STOCK_BIN,
-            FINAL_PRODUCT_ORDER_BIN,
+        activateFinalProductMovement(
+            root,
             movementKey,
-            { lotNo: selected.lotNo || '' }
+            buildFinalProductStockMovement(
+                'stock_to_order',
+                base,
+                qty,
+                FINAL_PRODUCT_STOCK_BIN,
+                FINAL_PRODUCT_ORDER_BIN,
+                movementKey,
+                {
+                    lotNo: selected.lotNo || '',
+                    sourceItemKey: selected.id || buildFinalProductStockKey('stock', base.productNo, selected.lotNo)
+                }
+            )
         );
         return { root, result: { movementKey } };
     });
@@ -408,7 +563,7 @@ async function applyStockToOrder(order) {
 async function applyPickedFromOrderStock(order) {
     const base = buildFinalProductStockBase(order);
     if (!base.salesLineId) return { ok: false };
-    const movementKey = `picked:${base.salesLineId}`;
+    const movementKey = getFinalProductPickedMovementKey(base);
     const qtyToPick = base.quantity;
     if (qtyToPick <= 0) {
         showToast('Çekme işlemi için miktar eksik.', 'warning');
@@ -416,7 +571,7 @@ async function applyPickedFromOrderStock(order) {
     }
     let insufficient = false;
     const tx = await transactFinalProductStock(root => {
-        if (hasFinalProductMovement(root, movementKey)) return { root, result: { skipped: true } };
+        if (isFinalProductMovementActive(root, movementKey)) return { root, result: { skipped: true } };
         const reservedItems = Object.entries(root.items || {})
             .filter(([, item]) => String(item?.bin || '') === FINAL_PRODUCT_ORDER_BIN)
             .filter(([, item]) => String(item?.salesLineId || '') === base.salesLineId)
@@ -427,20 +582,32 @@ async function applyPickedFromOrderStock(order) {
             return;
         }
         let remaining = qtyToPick;
+        const pickedItems = [];
         reservedItems.forEach(([key, item]) => {
             if (remaining <= 0) return;
             const currentQty = Number(item.quantity) || 0;
             const deduct = Math.min(currentQty, remaining);
             upsertFinalProductStockItem(root, key, item, -deduct);
+            pickedItems.push({
+                itemKey: key,
+                quantity: deduct,
+                lotNo: item.lotNo || '',
+                source: item.source || ''
+            });
             remaining -= deduct;
         });
-        root.movements[buildFinalProductStockKey(movementKey)] = buildFinalProductStockMovement(
-            'picked',
-            base,
-            qtyToPick,
-            FINAL_PRODUCT_ORDER_BIN,
-            '',
-            movementKey
+        activateFinalProductMovement(
+            root,
+            movementKey,
+            buildFinalProductStockMovement(
+                'picked',
+                base,
+                qtyToPick,
+                FINAL_PRODUCT_ORDER_BIN,
+                '',
+                movementKey,
+                { pickedItems }
+            )
         );
         return { root, result: { movementKey } };
     });
@@ -451,15 +618,196 @@ async function applyPickedFromOrderStock(order) {
     return { ok: true, patch: getFinalProductMovementPatch(order, movementKey) };
 }
 
+function normalizeFinalProductStockStatus(status) {
+    return typeof normalizeSalesStatus === 'function'
+        ? normalizeSalesStatus(status)
+        : String(status || '').trim().toLocaleLowerCase('tr');
+}
+
+function isFinalProductPickedStatus(status) {
+    return status === 'ürünün çekmesi yapıldı' || status === 'çekmesi yapıldı';
+}
+
+function restorePickedFinalProductItems(root, movement, base) {
+    const pickedItems = Array.isArray(movement?.pickedItems) ? movement.pickedItems : [];
+    if (pickedItems.length > 0) {
+        pickedItems.forEach(item => {
+            const itemKey = item.itemKey || getFinalProductReservedItemKey(base, item.lotNo || base.lotNo);
+            upsertFinalProductStockItem(root, itemKey, {
+                ...base,
+                id: itemKey,
+                lotNo: item.lotNo || base.lotNo,
+                bin: FINAL_PRODUCT_ORDER_BIN,
+                source: item.source || 'revert_picked'
+            }, Number(item.quantity) || 0);
+        });
+        return;
+    }
+
+    const itemKey = getFinalProductReservedItemKey(base, movement?.lotNo || base.lotNo);
+    upsertFinalProductStockItem(root, itemKey, {
+        ...base,
+        id: itemKey,
+        lotNo: movement?.lotNo || base.lotNo,
+        bin: FINAL_PRODUCT_ORDER_BIN,
+        source: 'revert_picked'
+    }, Number(movement?.quantity) || base.quantity);
+}
+
+async function revertReadyToOrderStock(order, revertType = 'revert_ready') {
+    const base = buildFinalProductStockBase(order);
+    const movementKey = getFinalProductReadyMovementKey(base);
+    await transactFinalProductStock(root => {
+        revertFinalProductMovementOnce(root, movementKey, revertType, base, (nextRoot, movement, movementBase) => {
+            const itemKey = getFinalProductReservedItemKey(movementBase, movement.lotNo || movementBase.lotNo);
+            upsertFinalProductStockItem(nextRoot, itemKey, {}, -(Number(movement.quantity) || movementBase.quantity));
+        });
+        return { root, result: { movementKey } };
+    });
+    return { ok: true, patch: { _finalProductStockUpdatedAt: new Date().toISOString() } };
+}
+
+async function revertReadyWithExtraStock(order) {
+    const base = buildFinalProductStockBase(order);
+    const orderMovementKey = getFinalProductReadyExtraOrderMovementKey(base);
+    const stockMovementKey = getFinalProductReadyExtraStockMovementKey(base);
+    const readyMovementKey = getFinalProductReadyMovementKey(base);
+
+    await transactFinalProductStock(root => {
+        const orderMovement = getFinalProductMovement(root, orderMovementKey);
+        const reservedMovementKey = orderMovement?.reservedMovementKey
+            || (isFinalProductMovementActive(root, readyMovementKey) ? readyMovementKey : orderMovementKey);
+
+        revertFinalProductMovementOnce(
+            root,
+            reservedMovementKey,
+            'revert_ready_with_extra_stock',
+            base,
+            (nextRoot, movement, movementBase) => {
+                const itemKey = getFinalProductReservedItemKey(movementBase, movement.lotNo || movementBase.lotNo);
+                upsertFinalProductStockItem(nextRoot, itemKey, {}, -(Number(movement.quantity) || movementBase.quantity));
+            }
+        );
+
+        if (orderMovementKey !== reservedMovementKey && isFinalProductMovementActive(root, orderMovementKey)) {
+            revertFinalProductMovementOnce(
+                root,
+                orderMovementKey,
+                'revert_ready_with_extra_stock',
+                base,
+                () => {}
+            );
+        }
+
+        revertFinalProductMovementOnce(
+            root,
+            stockMovementKey,
+            'revert_ready_with_extra_stock',
+            base,
+            (nextRoot, movement, movementBase) => {
+                const stockKey = buildFinalProductStockKey('stock', movementBase.productNo, movement.lotNo || movementBase.lotNo);
+                upsertFinalProductStockItem(nextRoot, stockKey, {}, -(Number(movement.quantity) || 0));
+            }
+        );
+        return { root, result: { orderMovementKey, stockMovementKey } };
+    });
+    return { ok: true, patch: { _finalProductStockUpdatedAt: new Date().toISOString() } };
+}
+
+async function revertStockToOrder(order) {
+    const base = buildFinalProductStockBase(order);
+    const movementKey = getFinalProductStockToOrderMovementKey(base);
+    await transactFinalProductStock(root => {
+        revertFinalProductMovementOnce(root, movementKey, 'revert_stock_to_order', base, (nextRoot, movement, movementBase) => {
+            const quantity = Number(movement.quantity) || 0;
+            const lotNo = movement.lotNo || movementBase.lotNo;
+            const reservedKey = getFinalProductReservedItemKey(movementBase, lotNo);
+            upsertFinalProductStockItem(nextRoot, reservedKey, {}, -quantity);
+
+            const stockKey = movement.sourceItemKey || buildFinalProductStockKey('stock', movementBase.productNo, lotNo);
+            upsertFinalProductStockItem(nextRoot, stockKey, {
+                ...movementBase,
+                id: stockKey,
+                lotNo,
+                bin: FINAL_PRODUCT_STOCK_BIN,
+                orderNo: '',
+                salesLineId: '',
+                sourceSalesLineId: movementBase.salesLineId,
+                source: 'revert_stock_to_order'
+            }, quantity);
+        });
+        return { root, result: { movementKey } };
+    });
+    return { ok: true, patch: { _finalProductStockUpdatedAt: new Date().toISOString() } };
+}
+
+async function revertPickedFromOrderStock(order) {
+    const base = buildFinalProductStockBase(order);
+    const movementKey = getFinalProductPickedMovementKey(base);
+    await transactFinalProductStock(root => {
+        revertFinalProductMovementOnce(root, movementKey, 'revert_picked', base, (nextRoot, movement, movementBase) => {
+            restorePickedFinalProductItems(nextRoot, movement, movementBase);
+        });
+        return { root, result: { movementKey } };
+    });
+    return { ok: true, patch: { _finalProductStockUpdatedAt: new Date().toISOString() } };
+}
+
+async function revertPreviousFinalProductStockMovement(order, oldStatus, newStatus) {
+    const previous = normalizeFinalProductStockStatus(oldStatus);
+    const next = normalizeFinalProductStockStatus(newStatus);
+    if (!previous || previous === next) return { ok: true, patch: {} };
+
+    if (isFinalProductPickedStatus(previous)) {
+        return await revertPickedFromOrderStock(order);
+    }
+
+    // Çekme, mevcut rezervasyonu tüketen normal devam adımıdır.
+    if (isFinalProductPickedStatus(next)) return { ok: true, patch: {} };
+
+    // Hazırdan stok toplandıya geçiş aynı sipariş rezervasyonunu yeniden yazmamalıdır.
+    if (previous === 'ürün hazır' && next === 'ürün hazır ve stok toplandı') {
+        return { ok: true, patch: {} };
+    }
+
+    if (previous === 'ürün hazır') {
+        return await revertReadyToOrderStock(order);
+    }
+    if (previous === 'ürün hazır ve stok toplandı') {
+        return await revertReadyWithExtraStock(order);
+    }
+    if (previous === 'ürün stoktan verilecek' || previous === 'stoktan verilecek') {
+        return await revertStockToOrder(order);
+    }
+    return { ok: true, patch: {} };
+}
+
 async function handleFinalProductStockMovement(order, oldStatus, newStatus) {
     if (!isFinalProductStockEnabled()) return { ok: true, patch: {} };
-    const normalized = typeof normalizeSalesStatus === 'function'
-        ? normalizeSalesStatus(newStatus)
-        : String(newStatus || '').trim().toLocaleLowerCase('tr');
+    const normalized = normalizeFinalProductStockStatus(newStatus);
     try {
+        const previous = normalizeFinalProductStockStatus(oldStatus);
+        const isReadyWithExtra = normalized === 'ürün hazır ve stok toplandı';
+        const isStockToOrder = normalized === 'ürün stoktan verilecek' || normalized === 'stoktan verilecek';
+
+        // Kullanıcı girdisi isteyen hareketlerde iptal edilirse eski depo durumu korunur.
+        if (isReadyWithExtra || isStockToOrder) {
+            const applied = isReadyWithExtra
+                ? await applyReadyWithExtraStock(order)
+                : await applyStockToOrder(order);
+            if (!applied?.ok) return applied;
+
+            const keepReadyReservation = previous === 'ürün hazır' && isReadyWithExtra;
+            if (!keepReadyReservation) {
+                const revertedAfterApply = await revertPreviousFinalProductStockMovement(order, oldStatus, newStatus);
+                if (!revertedAfterApply?.ok) return revertedAfterApply;
+            }
+            return applied;
+        }
+
+        const reverted = await revertPreviousFinalProductStockMovement(order, oldStatus, newStatus);
+        if (!reverted?.ok) return reverted;
         if (normalized === 'ürün hazır') return await applyReadyToOrderStock(order);
-        if (normalized === 'ürün hazır ve stok toplandı') return await applyReadyWithExtraStock(order);
-        if (normalized === 'ürün stoktan verilecek' || normalized === 'stoktan verilecek') return await applyStockToOrder(order);
         if (normalized === 'ürünün çekmesi yapıldı' || normalized === 'çekmesi yapıldı') return await applyPickedFromOrderStock(order);
         return { ok: true, patch: {} };
     } catch (error) {

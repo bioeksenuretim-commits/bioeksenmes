@@ -1,4 +1,4 @@
-const APP_BUILD_VERSION = '20260605-sales-lines-scroll-notify';
+const APP_BUILD_VERSION = '20260608-final-product-stock-rollback';
 window.APP_BUILD_VERSION = APP_BUILD_VERSION;
 console.log('APP_BUILD v4 aktif', APP_BUILD_VERSION);
 /**
