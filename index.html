@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/css/modules.css">
-    <link rel="stylesheet" href="/css/app-main.css?v=20260605-final-product-stock-bins">
+    <link rel="stylesheet" href="/css/app-main.css?v=20260608-stock-kit-management">
 
     <script defer src="/js/excel-loader.js?v=20260513-local-vendor"></script>
 
@@ -581,6 +581,11 @@
                 </div>
                 <div class="final-product-toolbar">
                     <input type="search" id="finalProductSearch" class="form-input" placeholder="Ara..." oninput="renderFinalProductQuantities()">
+                    <div class="final-product-stock-actions">
+                        <button type="button" class="btn btn-primary btn-sm" onclick="openFinalProductStockAddModal()">Stok Kit Ekle</button>
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('finalProductStockExcelInput').click()">Excel ile Ekle</button>
+                        <input type="file" id="finalProductStockExcelInput" accept=".xlsx,.xls" hidden onchange="importFinalProductStockExcel(this)">
+                    </div>
                     <div class="final-product-summary" id="finalProductSummary"></div>
                 </div>
                 <div class="final-product-stock-kits" id="finalProductStockKits"></div>
@@ -592,16 +597,18 @@
                                 <th><div class="final-product-th">Katalog No <span class="filter-icon" data-final-product-filter="product" onclick="event.stopPropagation();openFinalProductColFilter(event,'product')" title="Filtrele">▼</span></div></th>
                                 <th><div class="final-product-th">Açıklama <span class="filter-icon" data-final-product-filter="description" onclick="event.stopPropagation();openFinalProductColFilter(event,'description')" title="Filtrele">▼</span></div></th>
                                 <th><div class="final-product-th">Lot No <span class="filter-icon" data-final-product-filter="lot" onclick="event.stopPropagation();openFinalProductColFilter(event,'lot')" title="Filtrele">▼</span></div></th>
+                                <th><div class="final-product-th">Pazar <span class="filter-icon" data-final-product-filter="market" onclick="event.stopPropagation();openFinalProductColFilter(event,'market')" title="Filtrele">▼</span></div></th>
                                 <th><div class="final-product-th">Miktar <span class="filter-icon" data-final-product-filter="quantity" onclick="event.stopPropagation();openFinalProductColFilter(event,'quantity')" title="Filtrele">▼</span></div></th>
                                 <th><div class="final-product-th">Sipariş No <span class="filter-icon" data-final-product-filter="orderNo" onclick="event.stopPropagation();openFinalProductColFilter(event,'orderNo')" title="Filtrele">▼</span></div></th>
                                 <th><div class="final-product-th">Satış Satırı ID <span class="filter-icon" data-final-product-filter="salesLineId" onclick="event.stopPropagation();openFinalProductColFilter(event,'salesLineId')" title="Filtrele">▼</span></div></th>
                                 <th><div class="final-product-th">Durum / Kaynak <span class="filter-icon" data-final-product-filter="status" onclick="event.stopPropagation();openFinalProductColFilter(event,'status')" title="Filtrele">▼</span></div></th>
                                 <th><div class="final-product-th">Son Hareket <span class="filter-icon" data-final-product-filter="updatedAt" onclick="event.stopPropagation();openFinalProductColFilter(event,'updatedAt')" title="Filtrele">▼</span></div></th>
                                 <th><div class="final-product-th">Kullanıcı <span class="filter-icon" data-final-product-filter="updatedBy" onclick="event.stopPropagation();openFinalProductColFilter(event,'updatedBy')" title="Filtrele">▼</span></div></th>
+                                <th>İşlem</th>
                             </tr>
                         </thead>
                         <tbody id="finalProductTableBody">
-                            <tr><td colspan="10" class="empty-state-cell">Veri yükleniyor...</td></tr>
+                            <tr><td colspan="12" class="empty-state-cell">Veri yükleniyor...</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -1091,6 +1098,49 @@
     <!-- Bulk Actions Panel -->
     <div id="bulkActionsPanelContainer"></div>
 
+    <div class="modal-overlay" id="finalProductStockAddModal" onclick="if(event.target===this)closeFinalProductStockAddModal()">
+        <div class="modal final-product-stock-add-modal">
+            <div class="modal-header">
+                <div>
+                    <h3 class="modal-title">Stok Kit Ekle</h3>
+                    <p class="final-product-stock-modal-subtitle">Yeni stok kit bilgisini girin. Aynı katalog, pazar ve lot varsa miktar mevcut kayda eklenir.</p>
+                </div>
+                <button class="modal-close" type="button" onclick="closeFinalProductStockAddModal()">&times;</button>
+            </div>
+            <form id="finalProductStockAddForm" onsubmit="submitFinalProductStockAdd(event)">
+                <div class="final-product-stock-form-grid">
+                    <div class="form-group">
+                        <label class="form-label" for="finalProductStockCatalogNo">Katalog Numarası *</label>
+                        <input class="form-input" id="finalProductStockCatalogNo" type="text" required autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="finalProductStockMarket">Yurt İçi / Yurt Dışı *</label>
+                        <select class="form-input" id="finalProductStockMarket" required>
+                            <option value="">Seçiniz</option>
+                            <option value="YURT İÇİ">YURT İÇİ</option>
+                            <option value="YURT DIŞI">YURT DIŞI</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="finalProductStockLotNo">Lot No *</label>
+                        <input class="form-input" id="finalProductStockLotNo" type="text" required autocomplete="off">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" for="finalProductStockQuantity">Sayı *</label>
+                        <input class="form-input" id="finalProductStockQuantity" type="number" min="0.001" step="0.001" required>
+                    </div>
+                </div>
+                <div class="final-product-stock-excel-help">
+                    Excel sütunları: <strong>Katalog No</strong>, <strong>Yurt İçi/Yurt Dışı</strong>, <strong>Lot No</strong>, <strong>Miktar</strong>
+                </div>
+                <div class="modal-actions-row">
+                    <button class="btn btn-secondary" type="button" onclick="closeFinalProductStockAddModal()">Vazgeç</button>
+                    <button class="btn btn-primary" type="submit">Stok Kiti Ekle</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <!-- Detail Modal -->
     <div class="modal-overlay" id="ordersColumnPersonalizationModal" onclick="if(event.target===this)closeOrdersColumnPersonalizationModal()">
         <div class="modal">
@@ -1253,6 +1303,6 @@
     <div class="toast-container" id="toastContainer"></div>
 
     <script defer src="/js/orders-renderer-v1.js?v=20260601-sales-lines-sync-guard"></script>
-    <script defer src="/js/app-main-v4.js?v=20260608-stock-kits-popup"></script>
+    <script defer src="/js/app-main-v4.js?v=20260608-stock-kit-management"></script>
 </body>
 </html>

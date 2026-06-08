@@ -2326,6 +2326,40 @@
             margin-bottom: 0;
         }
 
+        .final-product-stock-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .final-product-stock-add-modal {
+            max-width: 620px;
+        }
+
+        .final-product-stock-modal-subtitle {
+            margin: 4px 0 0;
+            color: var(--text-secondary);
+            font-size: 13px;
+            line-height: 1.45;
+        }
+
+        .final-product-stock-form-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .final-product-stock-excel-help {
+            margin: 4px 0 16px;
+            padding: 10px 12px;
+            border: 1px solid #bfdbfe;
+            border-radius: 8px;
+            background: #eff6ff;
+            color: #1e40af;
+            font-size: 12px;
+        }
+
         .final-product-toolbar .form-input {
             width: 240px;
             height: 32px;
@@ -2437,7 +2471,7 @@
         }
 
         .final-product-table {
-            min-width: 1540px;
+            min-width: 1780px;
         }
 
         .final-product-stock-kits-table {
@@ -2466,32 +2500,66 @@
 
         .final-product-table th:nth-child(5),
         .final-product-table td:nth-child(5) {
-            width: 90px;
+            width: 120px;
         }
 
         .final-product-table th:nth-child(6),
         .final-product-table td:nth-child(6) {
-            width: 140px;
+            width: 90px;
         }
 
         .final-product-table th:nth-child(7),
         .final-product-table td:nth-child(7) {
-            width: 190px;
+            width: 140px;
         }
 
         .final-product-table th:nth-child(8),
         .final-product-table td:nth-child(8) {
-            width: 150px;
+            width: 190px;
         }
 
         .final-product-table th:nth-child(9),
         .final-product-table td:nth-child(9) {
-            width: 160px;
+            width: 150px;
         }
 
         .final-product-table th:nth-child(10),
         .final-product-table td:nth-child(10) {
+            width: 160px;
+        }
+
+        .final-product-table th:nth-child(11),
+        .final-product-table td:nth-child(11) {
             width: 110px;
+        }
+
+        .final-product-table th:nth-child(12),
+        .final-product-table td:nth-child(12) {
+            width: 180px;
+        }
+
+        .final-product-stock-quantity-input {
+            width: 76px;
+            min-width: 76px;
+            height: 30px;
+            padding: 5px 8px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            background: #fff;
+            color: #111827;
+            font: inherit;
+        }
+
+        .final-product-stock-row-actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        @media (max-width: 640px) {
+            .final-product-stock-form-grid {
+                grid-template-columns: 1fr;
+            }
         }
 
         .final-product-stock-kits-table th:nth-child(1),
