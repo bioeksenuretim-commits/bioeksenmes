@@ -122,6 +122,24 @@ async function run() {
     root = harness.getRoot().finalProductStock;
     assert.strictEqual(sumQuantity(getItems(root, 'SİPARİŞE ÖZEL KİTLER')), 5, 'Hazır hareketi çift yazılmamalı');
 
+    root.items = {};
+    harness.setRoot({ finalProductStock: root });
+    await api.handleFinalProductStockMovement(order, 'Ürün Hazır', 'Ürün Hazır');
+    root = harness.getRoot().finalProductStock;
+    assert.strictEqual(
+        sumQuantity(getItems(root, 'SİPARİŞE ÖZEL KİTLER')),
+        5,
+        'Aktif hazır hareketinin eksik rezervasyonu onarılmalı'
+    );
+
+    await api.handleFinalProductStockMovement(order, 'Ürün Hazır', 'Ürün Hazır');
+    root = harness.getRoot().finalProductStock;
+    assert.strictEqual(
+        sumQuantity(getItems(root, 'SİPARİŞE ÖZEL KİTLER')),
+        5,
+        'Rezervasyon onarımı miktarı çift yazmamalı'
+    );
+
     prompts.push('3');
     await api.handleFinalProductStockMovement(order, 'Ürün Hazır', 'Ürün Hazır ve Stok Toplandı');
     root = harness.getRoot().finalProductStock;
@@ -143,6 +161,9 @@ async function run() {
     );
 
     await api.handleFinalProductStockMovement(order, 'Ürün Planlandı', 'Ürün Hazır');
+    root = harness.getRoot().finalProductStock;
+    root.items = {};
+    harness.setRoot({ finalProductStock: root });
     await api.handleFinalProductStockMovement(order, 'Ürün Hazır', 'Ürünün Çekmesi Yapıldı');
     root = harness.getRoot().finalProductStock;
     assert.strictEqual(getItems(root, 'SİPARİŞE ÖZEL KİTLER').length, 0, 'Çekilen rezervasyon tamamen silinmeli');
@@ -195,6 +216,24 @@ async function run() {
 
     const movementTypes = Object.values(root.movements || {}).map(item => item.type);
     assert.ok(movementTypes.includes('revert_stock_to_order'), 'Stok geri alma hareketi loglanmalı');
+
+    const missingHarness = createHarness();
+    const missingResult = await missingHarness.api.handleFinalProductStockMovement(
+        {
+            _id: 'line-missing',
+            'Ürün No': 'KIT-MISSING',
+            'Belge No': 'ORD-MISSING',
+            Miktar: 1
+        },
+        'Ürün Planlandı',
+        'Ürünün Çekmesi Yapıldı'
+    );
+    assert.strictEqual(missingResult?.ok, false, 'Rezervasyonsuz çekme reddedilmeli');
+    assert.strictEqual(
+        missingHarness.toasts.at(-1)?.message,
+        'Bu satır için siparişe özel kit bulunamadı. Önce Ürün Hazır hareketini tekrar oluşturun.',
+        'Rezervasyon bulunamadığında açıklayıcı uyarı gösterilmeli'
+    );
 
     console.log('final-product-stock regression tests passed');
 }

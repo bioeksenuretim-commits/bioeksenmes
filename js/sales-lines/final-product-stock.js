@@ -237,10 +237,78 @@ function getFinalProductPickedMovementKey(base) {
     return `picked:${base.salesLineId}`;
 }
 
+function getReservedFinalProductItems(root, base) {
+    return Object.entries(root.items || {})
+        .filter(([, item]) => String(item?.bin || '') === FINAL_PRODUCT_ORDER_BIN)
+        .filter(([, item]) => String(item?.salesLineId || '') === base.salesLineId)
+        .filter(([, item]) => String(item?.productNo || '') === base.productNo)
+        .filter(([, item]) => String(item?.orderNo || '') === base.orderNo)
+        .filter(([, item]) => (Number(item?.quantity) || 0) > 0);
+}
+
+// Movement logu aktifken silinmiş/eksik rezervasyonu yalnız eksik miktar kadar onarır.
+function repairReservedOrderStockFromMovement(root, base, movementKey, source = 'ready_repair') {
+    const movement = getFinalProductMovement(root, movementKey);
+    if (!movement || movement.active === false) {
+        return { repaired: false, movementKey, availableQty: 0, expectedQty: 0 };
+    }
+
+    const expectedQty = Number(movement.quantity) || 0;
+    const reservedItems = getReservedFinalProductItems(root, base);
+    const availableQty = reservedItems.reduce((sum, [, item]) => sum + (Number(item.quantity) || 0), 0);
+    const missingQty = Math.max(0, expectedQty - availableQty);
+    if (missingQty <= 0) {
+        return { repaired: false, movementKey, availableQty, expectedQty };
+    }
+
+    const lotNo = movement.lotNo || base.lotNo;
+    const itemKey = getFinalProductReservedItemKey(base, lotNo);
+    upsertFinalProductStockItem(root, itemKey, {
+        ...base,
+        id: itemKey,
+        lotNo,
+        bin: FINAL_PRODUCT_ORDER_BIN,
+        source
+    }, missingQty);
+    return {
+        repaired: true,
+        movementKey,
+        availableQty: availableQty + missingQty,
+        expectedQty,
+        repairedQty: missingQty
+    };
+}
+
+function repairReservedOrderStockFromActiveMovements(root, base) {
+    const readyKey = getFinalProductReadyMovementKey(base);
+    const extraOrderKey = getFinalProductReadyExtraOrderMovementKey(base);
+    const stockToOrderKey = getFinalProductStockToOrderMovementKey(base);
+    const extraOrderMovement = getFinalProductMovement(root, extraOrderKey);
+    const candidates = [
+        readyKey,
+        extraOrderMovement?.reservedMovementKey,
+        extraOrderKey,
+        stockToOrderKey
+    ].filter((key, index, values) => key && values.indexOf(key) === index);
+
+    for (const movementKey of candidates) {
+        const movement = getFinalProductMovement(root, movementKey);
+        if (!movement || movement.active === false || (Number(movement.quantity) || 0) <= 0) continue;
+        return repairReservedOrderStockFromMovement(root, base, movementKey);
+    }
+    return { repaired: false, movementKey: '', availableQty: 0, expectedQty: 0 };
+}
+
 function ensureReservedOrderStockOnce(root, base, source, movementKeyCandidates = []) {
     const activeMovementKey = movementKeyCandidates.find(key => isFinalProductMovementActive(root, key));
     if (activeMovementKey) {
-        return { added: false, movementKey: activeMovementKey };
+        const repair = repairReservedOrderStockFromMovement(root, base, activeMovementKey, `${source}_repair`);
+        return {
+            added: false,
+            repaired: repair.repaired,
+            repairedQty: repair.repairedQty || 0,
+            movementKey: activeMovementKey
+        };
     }
 
     const movementKey = movementKeyCandidates[0] || getFinalProductReadyMovementKey(base);
@@ -256,7 +324,7 @@ function ensureReservedOrderStockOnce(root, base, source, movementKeyCandidates 
         movementKey,
         buildFinalProductStockMovement(source, base, base.quantity, '', FINAL_PRODUCT_ORDER_BIN, movementKey)
     );
-    return { added: true, movementKey };
+    return { added: true, repaired: false, repairedQty: 0, movementKey };
 }
 
 function buildFinalProductMovementBase(movement, fallbackBase) {
@@ -344,8 +412,10 @@ async function applyReadyToOrderStock(order) {
     }
     const movementKey = getFinalProductReadyMovementKey(base);
     await transactFinalProductStock(root => {
-        if (isFinalProductMovementActive(root, movementKey)) return { root, result: { skipped: true } };
-        ensureReservedOrderStockOnce(root, base, 'ready', [movementKey]);
+        const reservation = ensureReservedOrderStockOnce(root, base, 'ready', [movementKey]);
+        if (!reservation.added && !reservation.repaired) {
+            return { root, result: { skipped: true } };
+        }
         return { root, result: { movementKey } };
     });
     return { ok: true, patch: getFinalProductMovementPatch(order, movementKey) };
@@ -570,15 +640,15 @@ async function applyPickedFromOrderStock(order) {
         return { ok: false };
     }
     let insufficient = false;
+    let missingReservation = false;
     const tx = await transactFinalProductStock(root => {
         if (isFinalProductMovementActive(root, movementKey)) return { root, result: { skipped: true } };
-        const reservedItems = Object.entries(root.items || {})
-            .filter(([, item]) => String(item?.bin || '') === FINAL_PRODUCT_ORDER_BIN)
-            .filter(([, item]) => String(item?.salesLineId || '') === base.salesLineId)
-            .filter(([, item]) => (Number(item?.quantity) || 0) > 0);
+        repairReservedOrderStockFromActiveMovements(root, base);
+        const reservedItems = getReservedFinalProductItems(root, base);
         const reservedQty = reservedItems.reduce((sum, [, item]) => sum + (Number(item.quantity) || 0), 0);
         if (reservedQty < qtyToPick) {
             insufficient = true;
+            missingReservation = reservedQty <= 0;
             return;
         }
         let remaining = qtyToPick;
@@ -612,7 +682,12 @@ async function applyPickedFromOrderStock(order) {
         return { root, result: { movementKey } };
     });
     if (insufficient || !tx.committed) {
-        showToast('Siparişe özel kit miktarı yetersiz.', 'warning');
+        showToast(
+            missingReservation
+                ? 'Bu satır için siparişe özel kit bulunamadı. Önce Ürün Hazır hareketini tekrar oluşturun.'
+                : 'Siparişe özel kit miktarı yetersiz.',
+            'warning'
+        );
         return { ok: false };
     }
     return { ok: true, patch: getFinalProductMovementPatch(order, movementKey) };
