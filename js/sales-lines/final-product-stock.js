@@ -246,6 +246,11 @@ function getReservedFinalProductItems(root, base) {
         .filter(([, item]) => (Number(item?.quantity) || 0) > 0);
 }
 
+function getReservedFinalProductQty(root, base) {
+    return getReservedFinalProductItems(root, base)
+        .reduce((sum, [, item]) => sum + (Number(item.quantity) || 0), 0);
+}
+
 // Movement logu aktifken silinmiş/eksik rezervasyonu yalnız eksik miktar kadar onarır.
 function repairReservedOrderStockFromMovement(root, base, movementKey, source = 'ready_repair') {
     const movement = getFinalProductMovement(root, movementKey);
@@ -297,6 +302,80 @@ function repairReservedOrderStockFromActiveMovements(root, base) {
         return repairReservedOrderStockFromMovement(root, base, movementKey);
     }
     return { repaired: false, movementKey: '', availableQty: 0, expectedQty: 0 };
+}
+
+function ensureReservedStockExistsForPicked(root, base, oldStatus) {
+    const requiredQty = Number(base.quantity) || 0;
+    if (requiredQty <= 0) return { ensured: false, reservedQty: 0 };
+
+    let reservedQty = getReservedFinalProductQty(root, base);
+    if (reservedQty >= requiredQty) {
+        return { ensured: false, reservedQty };
+    }
+
+    repairReservedOrderStockFromActiveMovements(root, base);
+    reservedQty = getReservedFinalProductQty(root, base);
+    if (reservedQty >= requiredQty) {
+        return { ensured: true, reservedQty };
+    }
+
+    const previous = normalizeFinalProductStockStatus(oldStatus);
+    const missingQty = Math.max(0, requiredQty - reservedQty);
+    if (missingQty <= 0) {
+        return { ensured: false, reservedQty };
+    }
+
+    if (previous === 'ürün hazır') {
+        const movementKey = getFinalProductReadyMovementKey(base);
+        const itemKey = getFinalProductReservedItemKey(base);
+        upsertFinalProductStockItem(root, itemKey, {
+            ...base,
+            id: itemKey,
+            bin: FINAL_PRODUCT_ORDER_BIN,
+            source: 'ready_pick_repair'
+        }, missingQty);
+        activateFinalProductMovement(
+            root,
+            movementKey,
+            buildFinalProductStockMovement('ready', base, requiredQty, '', FINAL_PRODUCT_ORDER_BIN, movementKey, {
+                autoRepairedForPicked: true,
+                repairedQty: missingQty
+            })
+        );
+        return { ensured: true, reservedQty: reservedQty + missingQty, movementKey };
+    }
+
+    if (previous === 'ürün hazır ve stok toplandı') {
+        const movementKey = getFinalProductReadyExtraOrderMovementKey(base);
+        const itemKey = getFinalProductReservedItemKey(base);
+        upsertFinalProductStockItem(root, itemKey, {
+            ...base,
+            id: itemKey,
+            bin: FINAL_PRODUCT_ORDER_BIN,
+            source: 'ready_with_extra_stock_pick_repair'
+        }, missingQty);
+        activateFinalProductMovement(
+            root,
+            movementKey,
+            buildFinalProductStockMovement(
+                'ready_with_extra_stock',
+                base,
+                requiredQty,
+                '',
+                FINAL_PRODUCT_ORDER_BIN,
+                movementKey,
+                {
+                    autoRepairedForPicked: true,
+                    repairedQty: missingQty,
+                    reservationAdded: true,
+                    reservedMovementKey: movementKey
+                }
+            )
+        );
+        return { ensured: true, reservedQty: reservedQty + missingQty, movementKey };
+    }
+
+    return { ensured: false, reservedQty };
 }
 
 function ensureReservedOrderStockOnce(root, base, source, movementKeyCandidates = []) {
@@ -630,7 +709,7 @@ async function applyStockToOrder(order) {
     };
 }
 
-async function applyPickedFromOrderStock(order) {
+async function applyPickedFromOrderStock(order, options = {}) {
     const base = buildFinalProductStockBase(order);
     if (!base.salesLineId) return { ok: false };
     const movementKey = getFinalProductPickedMovementKey(base);
@@ -643,9 +722,9 @@ async function applyPickedFromOrderStock(order) {
     let missingReservation = false;
     const tx = await transactFinalProductStock(root => {
         if (isFinalProductMovementActive(root, movementKey)) return { root, result: { skipped: true } };
-        repairReservedOrderStockFromActiveMovements(root, base);
+        ensureReservedStockExistsForPicked(root, base, options.previousStatus);
         const reservedItems = getReservedFinalProductItems(root, base);
-        const reservedQty = reservedItems.reduce((sum, [, item]) => sum + (Number(item.quantity) || 0), 0);
+        const reservedQty = getReservedFinalProductQty(root, base);
         if (reservedQty < qtyToPick) {
             insufficient = true;
             missingReservation = reservedQty <= 0;
@@ -864,6 +943,7 @@ async function handleFinalProductStockMovement(order, oldStatus, newStatus) {
         const previous = normalizeFinalProductStockStatus(oldStatus);
         const isReadyWithExtra = normalized === 'ürün hazır ve stok toplandı';
         const isStockToOrder = normalized === 'ürün stoktan verilecek' || normalized === 'stoktan verilecek';
+        const isPicked = normalized === 'ürünün çekmesi yapıldı' || normalized === 'çekmesi yapıldı';
 
         // Kullanıcı girdisi isteyen hareketlerde iptal edilirse eski depo durumu korunur.
         if (isReadyWithExtra || isStockToOrder) {
@@ -880,10 +960,11 @@ async function handleFinalProductStockMovement(order, oldStatus, newStatus) {
             return applied;
         }
 
+        if (isPicked) return await applyPickedFromOrderStock(order, { previousStatus: oldStatus });
+
         const reverted = await revertPreviousFinalProductStockMovement(order, oldStatus, newStatus);
         if (!reverted?.ok) return reverted;
         if (normalized === 'ürün hazır') return await applyReadyToOrderStock(order);
-        if (normalized === 'ürünün çekmesi yapıldı' || normalized === 'çekmesi yapıldı') return await applyPickedFromOrderStock(order);
         return { ok: true, patch: {} };
     } catch (error) {
         console.error('Son ürün stok hareketi uygulanamadı:', error);

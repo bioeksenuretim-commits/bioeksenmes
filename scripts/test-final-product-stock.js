@@ -217,6 +217,84 @@ async function run() {
     const movementTypes = Object.values(root.movements || {}).map(item => item.type);
     assert.ok(movementTypes.includes('revert_stock_to_order'), 'Stok geri alma hareketi loglanmalı');
 
+    const legacyReadyHarness = createHarness();
+    const legacyReadyOrder = {
+        _id: 'line-legacy-ready',
+        'Ürün No': 'KIT-LEGACY',
+        'Lot No': 'LOT-LEGACY',
+        'Belge No': 'ORD-LEGACY',
+        Miktar: 5
+    };
+    const legacyReadyResult = await legacyReadyHarness.api.handleFinalProductStockMovement(
+        legacyReadyOrder,
+        'Ürün Hazır',
+        'Ürünün Çekmesi Yapıldı'
+    );
+    root = legacyReadyHarness.getRoot().finalProductStock;
+    assert.strictEqual(legacyReadyResult?.ok, true, 'Eski hazır satırında çekme otomatik onarılmalı');
+    assert.strictEqual(
+        getItems(root, 'SİPARİŞE ÖZEL KİTLER').length,
+        0,
+        'Otomatik oluşturulan rezervasyon aynı işlemde tamamen çekilmeli'
+    );
+    assert.deepStrictEqual(legacyReadyHarness.toasts, [], 'Başarılı otomatik onarım uyarı göstermemeli');
+    assert.ok(
+        Object.values(root.movements || {}).some(item => item.type === 'ready' && item.autoRepairedForPicked),
+        'Eksik ready movement otomatik oluşturulmalı'
+    );
+    assert.ok(
+        Object.values(root.movements || {}).some(item => item.type === 'picked' && item.active !== false),
+        'Onarımdan sonra çekme hareketi oluşturulmalı'
+    );
+
+    const partialReadyHarness = createHarness();
+    partialReadyHarness.setRoot({
+        finalProductStock: {
+            items: {
+                partial: {
+                    id: 'partial',
+                    salesLineId: 'line-legacy-ready',
+                    productNo: 'KIT-LEGACY',
+                    lotNo: 'LOT-LEGACY',
+                    orderNo: 'ORD-LEGACY',
+                    quantity: 2,
+                    bin: 'SİPARİŞE ÖZEL KİTLER'
+                }
+            },
+            movements: {}
+        }
+    });
+    const partialReadyResult = await partialReadyHarness.api.handleFinalProductStockMovement(
+        legacyReadyOrder,
+        'Ürün Hazır',
+        'Ürünün Çekmesi Yapıldı'
+    );
+    root = partialReadyHarness.getRoot().finalProductStock;
+    assert.strictEqual(partialReadyResult?.ok, true);
+    assert.strictEqual(getItems(root, 'SİPARİŞE ÖZEL KİTLER').length, 0);
+    assert.ok(
+        Object.values(root.movements || {}).some(item => item.type === 'ready' && item.repairedQty === 3),
+        'Kısmi rezervasyonda yalnız eksik miktar tamamlanmalı'
+    );
+
+    const legacyExtraHarness = createHarness();
+    const legacyExtraResult = await legacyExtraHarness.api.handleFinalProductStockMovement(
+        {
+            ...legacyReadyOrder,
+            _id: 'line-legacy-extra',
+            'Belge No': 'ORD-LEGACY-EXTRA'
+        },
+        'Ürün Hazır ve Stok Toplandı',
+        'Çekmesi Yapıldı'
+    );
+    root = legacyExtraHarness.getRoot().finalProductStock;
+    assert.strictEqual(legacyExtraResult?.ok, true, 'Eski hazır ve stok toplandı satırı otomatik onarılmalı');
+    assert.strictEqual(getItems(root, 'SİPARİŞE ÖZEL KİTLER').length, 0);
+    assert.ok(
+        Object.values(root.movements || {}).some(item => item.type === 'ready_with_extra_stock' && item.autoRepairedForPicked),
+        'Eksik ready-extra-order movement otomatik oluşturulmalı'
+    );
+
     const missingHarness = createHarness();
     const missingResult = await missingHarness.api.handleFinalProductStockMovement(
         {
