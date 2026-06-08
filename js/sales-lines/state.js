@@ -429,7 +429,8 @@ const DASHBOARD_ACTIONS = [
     { key: 'output', label: 'Çıkış' },
     { key: 'cancelled', label: 'İptal' },
     { key: 'todayOutputs', label: 'Bugün Çıkan Ürünler' },
-    { key: 'extractionKits', label: 'Ekstraksiyon Kitleri' }
+    { key: 'extractionKits', label: 'Ekstraksiyon Kitleri' },
+    { key: 'stockKits', label: 'Stok Kitler' }
 ];
 const DEFAULT_SALES_LINE_COLUMN_WIDTHS = {
     [ACTION_COLUMN]: 140,
@@ -1011,7 +1012,11 @@ function updateDashboardActionVisibility() {
     if (!visibleDashboardActionSet) visibleDashboardActionSet = loadVisibleDashboardActionSet();
     document.querySelectorAll('[data-dashboard-action]').forEach(button => {
         const action = button.dataset.dashboardAction;
-        button.style.display = (!visibleDashboardActionSet || visibleDashboardActionSet.has(action)) ? '' : 'none';
+        button.style.display = (
+            action === 'stockKits'
+            || !visibleDashboardActionSet
+            || visibleDashboardActionSet.has(action)
+        ) ? '' : 'none';
     });
 }
 

@@ -11,7 +11,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
     <script src="/js/firebase-config.js?v=2"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/css/sales-lines.css?v=20260605-sales-lines-scroll-notify">
+    <link rel="stylesheet" href="/css/sales-lines.css?v=20260608-stock-kits-popup">
 </head>
 <body>
 
@@ -203,6 +203,41 @@
         </div>
     </div>
 
+    <div class="detail-overlay" id="stockKitsOverlay" onclick="if(event.target===this)closeStockKitsPopup()">
+        <div class="detail-modal stock-kits-modal">
+            <div class="detail-header">
+                <div>
+                    <h3>Stok Kitler</h3>
+                    <span id="stockKitsSummary">Stok kit kayıtları yükleniyor</span>
+                </div>
+                <div class="detail-tools">
+                    <input id="stockKitsSearch" class="detail-search" type="search" placeholder="Katalog, açıklama veya lot ara..." oninput="renderStockKitsPopup()">
+                    <button class="btn btn-sm modal-back-btn" onclick="setModalFullscreen('stockKitsOverlay', false)">Geri</button>
+                    <button class="modal-window-btn" type="button" onclick="toggleModalFullscreen('stockKitsOverlay')" title="Büyüt / küçült">⛶</button>
+                    <button class="btn btn-sm" onclick="closeStockKitsPopup()">Kapat</button>
+                </div>
+            </div>
+            <div class="detail-body">
+                <table class="stock-kits-table">
+                    <thead>
+                        <tr>
+                            <th>Ürün No</th>
+                            <th>Açıklama</th>
+                            <th>Lot No</th>
+                            <th>Miktar</th>
+                            <th>Kaynak</th>
+                            <th>Son Güncelleme</th>
+                            <th>Güncelleyen</th>
+                        </tr>
+                    </thead>
+                    <tbody id="stockKitsBody">
+                        <tr><td colspan="7" class="stock-kits-empty">Stok kit kayıtları yükleniyor...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
     <!-- Table View -->
     <div id="tableView">
         <div class="toolbar">
@@ -223,6 +258,7 @@
                     <button type="button" class="btn btn-sm" data-dashboard-action="cancelled" onclick="openDetail('cancelled')">İptal <span class="btn-count danger" id="dashBtnCancelled">0</span></button>
                     <button type="button" class="btn btn-sm" data-dashboard-action="todayOutputs" onclick="openDetail('todayOutputs')">Bugün Çıkan Ürünler <span class="btn-count" id="dashBtnTodayOutputs">0</span></button>
                     <button type="button" class="btn btn-sm" data-dashboard-action="extractionKits" onclick="openDetail('extractionKits')">Ekstraksiyon Kitleri <span class="btn-count" id="dashBtnExtractionKits">0</span></button>
+                    <button type="button" class="btn btn-sm stock-kits-action" data-dashboard-action="stockKits" onclick="openStockKitsPopup()">Stok Kitler <span class="btn-count stock" id="dashBtnStockKits">0</span></button>
                 </div>
             </div>
             <div class="toolbar-right">
@@ -282,14 +318,14 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="/js/sales-lines/state.js?v=20260605-sales-lines-scroll-notify"></script>
+<script src="/js/sales-lines/state.js?v=20260608-stock-kits-popup"></script>
 <script src="/js/sales-lines/excel-import.js?v=20260605-date-string-internals"></script>
 <script src="/js/sales-lines/customer-market.js?v=20260605-date-string-internals"></script>
     <script src="/js/sales-lines/final-product-stock.js?v=20260608-final-product-stock-picked-repair"></script>
-<script src="/js/sales-lines/modals.js?v=20260605-output-rep-column"></script>
+<script src="/js/sales-lines/modals.js?v=20260608-stock-kits-popup"></script>
 <script src="/js/sales-lines/table-render.js?v=20260605-sales-lines-scroll-notify"></script>
 <script src="/js/sales-lines/export.js?v=20260601-sales-lines-sync-guard"></script>
-<script src="/js/sales-lines/bootstrap.js?v=20260605-sales-lines-scroll-notify"></script>
+<script src="/js/sales-lines/bootstrap.js?v=20260608-stock-kits-popup"></script>
 </body>
 </html>
 

@@ -95,7 +95,159 @@ function renderDashboard() {
     setCount('dashBtnCancelled', counts.cancelled);
     setCount('dashBtnTodayOutputs', counts.todayOutputs);
     setCount('dashBtnExtractionKits', counts.extractionKits);
+    startStockKitDashboardSync().catch(error => {
+        console.warn('Stok kit özeti yüklenemedi:', error);
+    });
     updateDashboardActionVisibility();
+}
+
+let stockKitRows = [];
+let stockKitItemsRef = null;
+let stockKitSyncPromise = null;
+let stockKitSyncError = '';
+
+function getStockKitTotalQuantity(rows = stockKitRows) {
+    return rows.reduce((sum, row) => sum + (Number(row.quantity) || 0), 0);
+}
+
+function formatStockKitQuantity(value) {
+    const quantity = Number(value) || 0;
+    return quantity.toLocaleString('tr-TR', { maximumFractionDigits: 3 });
+}
+
+function formatStockKitDate(value) {
+    if (!value) return '-';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    return date.toLocaleString('tr-TR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+}
+
+function getStockKitSourceLabel(source) {
+    const labels = {
+        ready_with_extra_stock: 'Ürün Hazır ve Stok Toplandı',
+        revert_stock_to_order: 'Stoktan Verilecek Geri Alma',
+        ready_with_extra_stock_pick_repair: 'Çekme Öncesi Otomatik Onarım'
+    };
+    const key = String(source || '').trim();
+    return labels[key] || key || '-';
+}
+
+function updateStockKitDashboardCount() {
+    const count = document.getElementById('dashBtnStockKits');
+    if (count) count.textContent = formatStockKitQuantity(getStockKitTotalQuantity());
+}
+
+function setStockKitRows(snapshotValue) {
+    stockKitRows = Object.entries(snapshotValue || {})
+        .map(([key, item]) => ({ id: item?.id || key, ...(item || {}) }))
+        .filter(item => String(item.bin || '') === FINAL_PRODUCT_STOCK_BIN)
+        .filter(item => (Number(item.quantity) || 0) > 0)
+        .sort((a, b) => {
+            const productCompare = String(a.productNo || '').localeCompare(String(b.productNo || ''), 'tr');
+            if (productCompare !== 0) return productCompare;
+            return String(a.lotNo || '').localeCompare(String(b.lotNo || ''), 'tr');
+        });
+    stockKitSyncError = '';
+    updateStockKitDashboardCount();
+    if (document.getElementById('stockKitsOverlay')?.classList.contains('active')) {
+        renderStockKitsPopup();
+    }
+}
+
+function startStockKitDashboardSync() {
+    if (stockKitItemsRef) return Promise.resolve();
+    if (stockKitSyncPromise) return stockKitSyncPromise;
+
+    stockKitSyncPromise = (async () => {
+        if (!await ensureFinalProductStockAuth()) {
+            throw new Error('Firebase oturumu doğrulanamadı.');
+        }
+        stockKitItemsRef = getFinalProductStockDbRef('items');
+        stockKitItemsRef.on(
+            'value',
+            snapshot => setStockKitRows(snapshot.val()),
+            error => {
+                stockKitSyncError = error?.message || 'Stok kit kayıtları okunamadı.';
+                stockKitItemsRef = null;
+                stockKitSyncPromise = null;
+                renderStockKitsPopup();
+            }
+        );
+    })().catch(error => {
+        stockKitSyncError = error?.message || 'Stok kit kayıtları okunamadı.';
+        stockKitSyncPromise = null;
+        throw error;
+    });
+    return stockKitSyncPromise;
+}
+
+function renderStockKitsPopup() {
+    const body = document.getElementById('stockKitsBody');
+    const summary = document.getElementById('stockKitsSummary');
+    if (!body || !summary) return;
+
+    if (stockKitSyncError) {
+        summary.textContent = 'Stok kit kayıtları yüklenemedi';
+        body.innerHTML = `<tr><td colspan="7" class="stock-kits-empty">${esc(stockKitSyncError)}</td></tr>`;
+        return;
+    }
+
+    const query = String(document.getElementById('stockKitsSearch')?.value || '')
+        .trim()
+        .toLocaleLowerCase('tr');
+    const visibleRows = query
+        ? stockKitRows.filter(row => [
+            row.productNo,
+            row.description,
+            row.lotNo,
+            getStockKitSourceLabel(row.source),
+            row.updatedBy
+        ].some(value => String(value || '').toLocaleLowerCase('tr').includes(query)))
+        : stockKitRows;
+
+    summary.textContent = `${stockKitRows.length} kayıt • ${formatStockKitQuantity(getStockKitTotalQuantity())} toplam kit`;
+    if (visibleRows.length === 0) {
+        body.innerHTML = `<tr><td colspan="7" class="stock-kits-empty">${query ? 'Aramayla eşleşen stok kit bulunamadı.' : 'Stok kit bulunamadı.'}</td></tr>`;
+        return;
+    }
+
+    body.innerHTML = visibleRows.map(row => `
+        <tr>
+            <td><strong>${esc(row.productNo || '-')}</strong></td>
+            <td>${esc(row.description || '-')}</td>
+            <td>${esc(row.lotNo || '-')}</td>
+            <td><span class="stock-kits-quantity">${esc(formatStockKitQuantity(row.quantity))}</span></td>
+            <td><span class="stock-kits-source">${esc(getStockKitSourceLabel(row.source))}</span></td>
+            <td>${esc(formatStockKitDate(row.updatedAt || row.createdAt))}</td>
+            <td>${esc(row.updatedBy || row.createdBy || '-')}</td>
+        </tr>
+    `).join('');
+}
+
+async function openStockKitsPopup() {
+    const overlay = document.getElementById('stockKitsOverlay');
+    if (!overlay) return;
+    overlay.classList.add('active');
+    renderStockKitsPopup();
+    try {
+        await startStockKitDashboardSync();
+    } catch (error) {
+        console.error('Stok kit popup verisi yüklenemedi:', error);
+        renderStockKitsPopup();
+    }
+}
+
+function closeStockKitsPopup() {
+    const overlay = document.getElementById('stockKitsOverlay');
+    if (!overlay) return;
+    overlay.classList.remove('active');
+    overlay.classList.remove('modal-fullscreen');
 }
 
 let todayOutputsMidnightRefreshTimer = null;

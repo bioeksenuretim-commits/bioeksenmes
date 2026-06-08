@@ -287,6 +287,16 @@
         }
         .dashboard-actions .btn-count.danger { color: var(--danger); }
         .dashboard-actions .btn-count.amber { color: #d97706; }
+        .dashboard-actions .btn-count.stock { color: #047857; }
+        .dashboard-actions .stock-kits-action {
+            border-color: #a7f3d0;
+            background: #ecfdf5;
+            color: #065f46;
+        }
+        .dashboard-actions .stock-kits-action:hover {
+            border-color: #6ee7b7;
+            background: #d1fae5;
+        }
         .header-right .btn-count {
             font-size: 11px;
             font-weight: 700;
@@ -377,6 +387,27 @@
             border-bottom: 1px solid var(--border);
             white-space: nowrap;
             position: sticky; top: 0;
+        }
+        .stock-kits-modal { max-width: 1180px; }
+        .stock-kits-table td { vertical-align: middle; }
+        .stock-kits-quantity {
+            display: inline-flex;
+            min-width: 48px;
+            justify-content: center;
+            padding: 4px 9px;
+            border-radius: 999px;
+            background: #ecfdf5;
+            color: #047857;
+            font-weight: 700;
+        }
+        .stock-kits-source {
+            color: var(--text-secondary);
+            font-size: 12px;
+        }
+        .stock-kits-empty {
+            padding: 40px 20px !important;
+            text-align: center;
+            color: var(--text-tertiary);
         }
         .detail-body td {
             padding: 8px 12px;

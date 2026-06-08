@@ -136,6 +136,7 @@ document.addEventListener('keydown', (e) => {
         document.getElementById('weekModal').classList.remove('active');
         closeBulkRequestWeekModal();
         closeDetail();
+        closeStockKitsPopup();
         closeLinkedRequestModal();
         closeSalesLineConflictModal();
     }
